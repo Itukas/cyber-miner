@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-    <head>
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyber Miner v1.0</title>
-<link rel="stylesheet" href="style.css">
+    <title>Cyber Miner v2.0</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="container">
     <header>
         <h1>CYBER MINER</h1>
-        <p>挖掘数据，升级算力</p>
+        <p>配置驱动版</p>
     </header>
 
     <section class="display-area">
@@ -18,7 +18,7 @@
             <span id="score">0</span> BYTES
         </div>
         <div class="stats">
-            <p>点击算力: <span id="click-power">1</span> /次</p>
+            <p>点击算力: <span id="click-power">0</span> /次</p>
             <p>自动算力: <span id="auto-power">0</span> /秒</p>
         </div>
     </section>
@@ -27,38 +27,16 @@
         <button id="mine-btn" class="main-btn">MINING (挖掘)</button>
     </section>
 
-    <section class="shop-area">
-        <h2>硬件商店</h2>
-        <div class="upgrade-item" onclick="buyUpgrade('cursor')">
-            <div class="info">
-                <h3>鼠标增强</h3>
-                <p>+1 点击算力</p>
-            </div>
-            <button class="buy-btn" id="btn-cursor">15 Bytes</button>
-        </div>
-
-        <div class="upgrade-item" onclick="buyUpgrade('gpu')">
-            <div class="info">
-                <h3>入门级显卡</h3>
-                <p>+5 自动算力/秒</p>
-            </div>
-            <button class="buy-btn" id="btn-gpu">100 Bytes</button>
-        </div>
-
-        <div class="upgrade-item" onclick="buyUpgrade('server')">
-            <div class="info">
-                <h3>量子服务器</h3>
-                <p>+50 自动算力/秒</p>
-            </div>
-            <button class="buy-btn" id="btn-server">1000 Bytes</button>
-        </div>
+    <section class="shop-area" id="shop-container">
     </section>
 
     <footer>
         <button onclick="resetGame()" class="danger-btn">重置进度</button>
-        <p id="save-status">自动存档中...</p>
+        <p id="save-status"></p>
     </footer>
 </div>
+
+<script src="config.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
