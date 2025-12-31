@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="floating-text-container"></div>
 <div class="container">
     <header>
         <h1>CYBER MINER</h1>
@@ -22,7 +23,28 @@
             <p>自动算力: <span id="auto-power">0</span> /秒</p>
         </div>
     </section>
+    <section class="visual-feedback-area">
+        <div id="data-core" class="core-idle">
+            <div class="core-inner"></div>
+        </div>
+        <div id="ripple-container"></div>
+    </section>
+    <section class="inventory-section">
+        <div class="section-title">装备槽位 (点击卸下)</div>
+        <div class="equip-slots">
+            <div class="slot" id="slot-cpu" onclick="unequipItem('cpu')">CPU</div>
+            <div class="slot" id="slot-ram" onclick="unequipItem('ram')">RAM</div>
+            <div class="slot" id="slot-disk" onclick="unequipItem('disk')">DISK</div>
+            <div class="slot" id="slot-net" onclick="unequipItem('net')">NET</div>
+            <div class="slot" id="slot-pwr" onclick="unequipItem('pwr')">PWR</div>
+        </div>
 
+        <div class="section-title">背包 (<span id="bag-count">0</span>/20) - 点击装备/丢弃</div>
+        <div class="backpack-grid" id="backpack-grid">
+        </div>
+
+        <div id="item-info-panel">点击物品查看详情</div>
+    </section>
     <section class="click-area">
         <button id="mine-btn" class="main-btn">MINING (挖掘)</button>
     </section>
@@ -37,6 +59,7 @@
 </div>
 
 <script src="config.js"></script>
+<script src="loot-config.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

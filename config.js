@@ -1,13 +1,7 @@
 /**
- * CYBER MINER 游戏配置文件
- * * --- 如何扩展 ---
- * 1. 在 shopCategories 数组中复制一个 {...} 对象来添加新分类。
- * 2. 或者在 existing items 数组中添加新物品对象。
- * 3. id 必须唯一，不能重复。
- * 4. type 只有两个值可选: 'click' (增加点击力) 或 'auto' (增加自动每秒产出)。
- * 5. costMultiplier 建议在 1.15 到 1.6 之间。
+ * CYBER MINER 核心配置文件
+ * 负责：基础设置、商店升级项
  */
-
 const GameConfig = {
     // 基础游戏设置
     settings: {
