@@ -1,19 +1,39 @@
 // ==========================================
-// 整合版 script.js (无需模块化，直接运行)
+// 整合版 script.js (战斗+挖矿双收益版)
 // ==========================================
 
 // --- 1. DOM 元素引用 ---
 const visualEls = {
+    // 核心动画区
     core: document.getElementById('data-core'),
     rippleContainer: document.getElementById('ripple-container'),
-    tooltip: document.getElementById('game-tooltip')
+    tooltip: document.getElementById('game-tooltip'),
+
+    // 战斗 UI
+    levelDisplay: document.getElementById('level-display'),
+    enemyName: document.getElementById('enemy-name'),
+    hpBarFill: document.getElementById('hp-bar-fill'),
+    hpText: document.getElementById('hp-text'),
+    timerBar: document.getElementById('boss-timer-bar'),
+    timerFill: document.querySelector('.timer-fill'),
+    timerText: document.querySelector('.timer-text')
 };
 
 // --- 2. 全局游戏状态 ---
-// 确保 GameConfig 已加载
 if (typeof GameConfig === 'undefined' || typeof LootConfig === 'undefined') {
     alert("错误：配置文件未加载！请确保 config.js 和 loot-config.js 在 script.js 之前引入。");
 }
+
+// 默认战斗配置
+const CombatDefaults = {
+    baseHp: 20,
+    hpGrowth: 1.15,
+    bossHpMult: 10,
+    bossTime: 15,
+    baseReward: 10,
+    rewardGrowth: 1.15
+};
+const CombatConfig = (GameConfig.combat) ? GameConfig.combat : CombatDefaults;
 
 let game = {
     bytes: GameConfig.settings.initialBytes,
@@ -26,10 +46,148 @@ let game = {
     },
     flags: {
         sellMode: false, selectedIndices: []
+    },
+    combat: {
+        level: 1,
+        currentHp: 20,
+        maxHp: 20,
+        isBoss: false,
+        bossTimer: 0,
+        bossInterval: null
     }
 };
 
-// --- 3. 工具函数 ---
+// --- 3. 战斗系统逻辑 ---
+
+const ENEMY_NAMES = [
+    "电子臭虫", "数据碎片", "内存泄漏", "僵尸进程", "逻辑炸弹",
+    "蠕虫病毒", "木马程序", "幽灵协议", "AI 叛军", "量子幽灵"
+];
+const BOSS_NAMES = [
+    "防火墙守卫", "核心溢出", "深网主宰", "赛博恶魔", "奇点吞噬者"
+];
+
+function spawnEnemy() {
+    const isBoss = (game.combat.level % 10 === 0);
+
+    // 血量公式
+    let hp = CombatConfig.baseHp * Math.pow(CombatConfig.hpGrowth, game.combat.level - 1);
+
+    if (isBoss) {
+        hp *= CombatConfig.bossHpMult;
+        startBossTimer();
+    } else {
+        stopBossTimer();
+    }
+
+    hp = Math.max(1, Math.floor(hp));
+
+    game.combat.currentHp = hp;
+    game.combat.maxHp = hp;
+    game.combat.isBoss = isBoss;
+
+    let name = "";
+    if (isBoss) {
+        const bossIndex = Math.floor(game.combat.level / 10) - 1;
+        name = "⚠️ " + (BOSS_NAMES[bossIndex % BOSS_NAMES.length] || "未知实体") + " ⚠️";
+    } else {
+        name = ENEMY_NAMES[(game.combat.level - 1) % ENEMY_NAMES.length] || "未知错误";
+    }
+
+    updateCombatUI(name);
+}
+
+function damageEnemy(amount) {
+    if (game.combat.currentHp <= 0) return;
+
+    game.combat.currentHp -= amount;
+
+    updateHpBar();
+
+    if (game.combat.currentHp <= 0) {
+        onEnemyDeath();
+    }
+}
+
+function onEnemyDeath() {
+    // 击杀额外奖励 (作为 Loot 包)
+    let reward = CombatConfig.baseReward * Math.pow(CombatConfig.rewardGrowth, game.combat.level - 1);
+
+    if (game.combat.isBoss) {
+        reward *= 10;
+        stopBossTimer();
+        showToast(`BOSS 击杀! 关卡升级!`, "#ffd700");
+    }
+
+    reward = Math.floor(reward);
+    game.bytes += reward;
+
+    tryDrop('click');
+
+    game.combat.level++;
+
+    // 飘字提示获得了额外战利品
+    spawnFloatingText(reward, 'money');
+    updateUI();
+    saveGame();
+
+    spawnEnemy();
+}
+
+function startBossTimer() {
+    stopBossTimer();
+    game.combat.bossTimer = CombatConfig.bossTime;
+
+    if (visualEls.timerBar) visualEls.timerBar.style.display = 'block';
+    if (visualEls.core) visualEls.core.classList.add('core-boss');
+
+    game.combat.bossInterval = setInterval(() => {
+        game.combat.bossTimer -= 0.1;
+        if (visualEls.timerFill) {
+            const pct = (game.combat.bossTimer / CombatConfig.bossTime) * 100;
+            visualEls.timerFill.style.width = `${pct}%`;
+        }
+        if (visualEls.timerText) {
+            visualEls.timerText.innerText = `${game.combat.bossTimer.toFixed(1)}s`;
+        }
+        if (game.combat.bossTimer <= 0) {
+            failBossFight();
+        }
+    }, 100);
+}
+
+function stopBossTimer() {
+    if (game.combat.bossInterval) {
+        clearInterval(game.combat.bossInterval);
+        game.combat.bossInterval = null;
+    }
+    if (visualEls.timerBar) visualEls.timerBar.style.display = 'none';
+    if (visualEls.core) visualEls.core.classList.remove('core-boss');
+}
+
+function failBossFight() {
+    stopBossTimer();
+    showToast("挑战超时! 退回上一关", "#ff4d4d");
+    game.combat.level = Math.max(1, game.combat.level - 1);
+    spawnEnemy();
+}
+
+function updateCombatUI(name) {
+    if (visualEls.levelDisplay) visualEls.levelDisplay.innerText = `LEVEL ${game.combat.level}`;
+    if (visualEls.enemyName && name) visualEls.enemyName.innerText = name;
+    updateHpBar();
+}
+
+function updateHpBar() {
+    if (!visualEls.hpBarFill) return;
+    const pct = Math.max(0, (game.combat.currentHp / game.combat.maxHp) * 100);
+    visualEls.hpBarFill.style.width = `${pct}%`;
+    if (visualEls.hpText) {
+        visualEls.hpText.innerText = `${formatBytes(Math.max(0, game.combat.currentHp))} / ${formatBytes(game.combat.maxHp)}`;
+    }
+}
+
+// --- 4. 工具函数 ---
 function formatBytes(num) {
     if (num < 1000) return Math.floor(num);
     if (num < 1000000) return (num/1000).toFixed(1) + 'k';
@@ -56,7 +214,7 @@ function showToast(msg, color) {
     setTimeout(() => toast.remove(), 3000);
 }
 
-// --- 4. 核心逻辑 (Shop System) ---
+// --- 5. 核心逻辑 (Shop System) ---
 function getCost(item) {
     const level = game.levels[item.id] || 0;
     const discountMult = Math.max(0.1, 1 - game.stats.discount);
@@ -68,13 +226,11 @@ function recalcPower() {
     let baseClick = GameConfig.settings.clickBasePower;
     let baseAuto = 0;
 
-    // 重置动态属性
     game.stats.critChance = 0;
     game.stats.critDamage = 1.5;
     game.stats.discount = 0;
     game.stats.luck = 1;
 
-    // 计算商店升级加成
     GameConfig.shopCategories.forEach(cat => {
         cat.items.forEach(item => {
             const level = game.levels[item.id] || 0;
@@ -84,7 +240,6 @@ function recalcPower() {
         });
     });
 
-    // 计算装备加成
     let clickMult = 1, autoMult = 1, clickFlat = 0, autoFlat = 0;
 
     for (let slot in game.equipped) {
@@ -103,14 +258,12 @@ function recalcPower() {
         }
     }
 
-    // 更新最终面板
     game.stats.clickPower = Math.floor((baseClick + clickFlat) * clickMult);
     game.stats.autoPower = Math.floor((baseAuto + autoFlat) * autoMult);
 
     updateCoreVisuals();
 }
 
-// 购买函数
 window.buyItem = function (id) {
     const item = findItemById(id);
     if (!item) return;
@@ -132,12 +285,11 @@ window.buyItem = function (id) {
     }
 };
 
-// --- 5. 掉落与背包 (Inventory System) ---
+// --- 6. 掉落与背包 (Inventory System) ---
 function generateLoot(source) {
     const chance = (source === 'click' ? LootConfig.settings.dropChanceClick : LootConfig.settings.dropChanceAuto) * game.stats.luck;
     if (Math.random() > chance) return;
 
-    // 随机稀有度
     const rand = Math.random();
     let rarityKey = 'common';
     let accum = 0;
@@ -146,11 +298,7 @@ function generateLoot(source) {
         if (rand <= accum) { rarityKey = key; break; }
     }
     const rarity = LootConfig.rarity[rarityKey];
-
-    // 随机底材
     const baseItem = LootConfig.equipmentBase[Math.floor(Math.random() * LootConfig.equipmentBase.length)];
-
-    // 堆叠检测
     const existingItem = game.inventory.find(i => i.baseId === baseItem.name && i.rarity === rarityKey);
 
     if (existingItem) {
@@ -188,7 +336,6 @@ function getSellPrice(item) {
     return Math.floor(LootConfig.settings.baseSellPrice * rarityCfg.sellMult);
 }
 
-// 装备操作挂载到 window
 window.equipItem = function(index) {
     const item = game.inventory[index];
     if (game.equipped[item.slot]) returnToInventory(game.equipped[item.slot]);
@@ -201,7 +348,6 @@ window.equipItem = function(index) {
         game.inventory.splice(index, 1);
     }
 
-    // 刷新显示
     const panel = document.getElementById('item-info-panel');
     if(panel) panel.innerText = "已装备";
 
@@ -271,7 +417,6 @@ function updateBulkSellBtn() {
 window.sellSelected = function() {
     if (game.flags.selectedIndices.length === 0) return;
     let totalGain = 0;
-    // 倒序删除防止索引错位
     game.flags.selectedIndices.sort((a, b) => b - a);
     game.flags.selectedIndices.forEach(index => {
         const item = game.inventory[index];
@@ -352,7 +497,7 @@ window.showItemOptions = function(index) {
     `;
 };
 
-// --- 6. 视觉特效 (Visuals) ---
+// --- 7. 视觉特效 (Visuals) ---
 function updateCoreVisuals() {
     if (!visualEls.core) return;
     const p = game.stats.clickPower;
@@ -372,16 +517,26 @@ function spawnFloatingText(amount, type) {
     if (type === 'crit') {
         el.innerText = '💥 ' + formatBytes(amount);
         el.classList.add('float-crit');
+    } else if (type === 'money') {
+        el.innerText = '💰 +' + formatBytes(amount);
+        el.style.color = '#ffd700';
+        el.style.fontSize = '1.4rem';
+        el.style.zIndex = '20';
+        el.style.textShadow = '0 0 5px #000';
     } else if (type === 'auto') {
-        el.innerText = '⚡ ' + formatBytes(amount);
+        el.innerText = '-' + formatBytes(amount);
         el.classList.add('float-auto');
+    } else if (type === 'damage') {
+        el.innerText = '-' + formatBytes(amount);
+        el.classList.add('float-normal');
     } else {
+        // 兼容回退
         el.innerText = '+' + formatBytes(amount);
         if(amount < 100) el.classList.add('float-normal');
         else el.classList.add('float-high');
     }
 
-    const x = window.innerWidth / 2 + (Math.random() - 0.5) * (type==='auto'?200:100);
+    const x = window.innerWidth / 2 + (Math.random() - 0.5) * 100;
     const y = window.innerHeight / 2 - 100 + (Math.random() - 0.5) * 50;
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
@@ -487,7 +642,7 @@ function isPct(type) {
     return type.includes('Pct') || type.includes('Chance') || type.includes('discount') || type.includes('luck');
 }
 
-// --- 7. 渲染 (UI Render) ---
+// --- 8. 渲染 (UI Render) ---
 function renderShop() {
     const container = document.getElementById('shop-container');
     if(!container) return;
@@ -595,15 +750,22 @@ function renderInventory() {
 }
 
 function updateUI() {
-    document.getElementById('score').innerText = formatBytes(game.bytes);
+    // 更新顶部的钱
+    const topScore = document.getElementById('top-score');
+    if(topScore) topScore.innerText = formatBytes(game.bytes);
+
+    // 兼容挖掘界面的旧显示
+    const oldScore = document.querySelector('.score-board span');
+    if(oldScore) oldScore.innerText = formatBytes(game.bytes);
 
     const statsHTML = `
-        <p>点击: <span class="val">${formatBytes(game.stats.clickPower)}</span> 
-           <small style="color:#ff003c" title="暴击率/暴击伤害">(${ (game.stats.critChance*100).toFixed(0) }% / x${game.stats.critDamage.toFixed(1)})</small>
+        <p>点击: <span class="val" style="color:#fff">${formatBytes(game.stats.clickPower)}</span> 
+           <span style="font-size:0.8em; color:#ff003c">(${ (game.stats.critChance*100).toFixed(0) }% / x${game.stats.critDamage.toFixed(1)})</span>
         </p>
-        <p>自动: <span class="val">${formatBytes(game.stats.autoPower)}</span>/s</p>
-        <p>幸运: <span class="val" style="color:#ffd700">${ (game.stats.luck * 100).toFixed(0) }%</span> 
-           折扣: <span class="val" style="color:#00e5ff">-${ (game.stats.discount * 100).toFixed(0) }%</span>
+        <p>自动: <span class="val" style="color:#fff">${formatBytes(game.stats.autoPower)}</span>/s</p>
+        <p style="font-size:0.8em; color:#888; margin-top:5px;">
+           运气: <span style="color:#ffd700">${ (game.stats.luck * 100).toFixed(0) }%</span> 
+           折扣: <span style="color:#00e5ff">-${ (game.stats.discount * 100).toFixed(0) }%</span>
         </p>
     `;
     const statsEl = document.querySelector('.stats');
@@ -614,8 +776,11 @@ function updateUI() {
             const cost = getCost(item);
             const btn = document.getElementById(`btn-${item.id}`);
             const lvlLabel = document.getElementById(`lvl-${item.id}`);
-            if (btn && btn.innerText !== "GET!") {
-                btn.innerText = `${formatBytes(cost)} B`;
+
+            if (btn) {
+                if (btn.innerText !== "GET!") {
+                    btn.innerText = `${formatBytes(cost)} B`;
+                }
                 if (game.bytes >= cost) btn.classList.add('can-buy');
                 else btn.classList.remove('can-buy');
             }
@@ -624,7 +789,7 @@ function updateUI() {
     });
 }
 
-// --- 8. 主循环与存档 (Main Loop) ---
+// --- 9. 主循环与初始化 ---
 function handleClick() {
     let damage = game.stats.clickPower;
     let isCrit = false;
@@ -634,11 +799,14 @@ function handleClick() {
         isCrit = true;
     }
 
+    // --- 修改：点击同时给钱 ---
     game.bytes += damage;
-    updateUI();
-    tryDrop('click');
+    // -------------------------
 
-    // 核心动画
+    // 攻击敌人
+    damageEnemy(damage);
+
+    // 视觉反馈
     if (visualEls.core) {
         visualEls.core.classList.remove('core-active', 'core-active-crit');
         void visualEls.core.offsetWidth;
@@ -647,7 +815,10 @@ function handleClick() {
     }
 
     createRipple(isCrit ? 'red' : 'green');
-    spawnFloatingText(damage, isCrit ? 'crit' : 'click');
+    spawnFloatingText(damage, isCrit ? 'crit' : 'damage');
+
+    // 更新UI（钱变了）
+    updateUI();
 }
 
 function saveGame() {
@@ -655,7 +826,8 @@ function saveGame() {
         bytes: game.bytes,
         levels: game.levels,
         inventory: game.inventory,
-        equipped: game.equipped
+        equipped: game.equipped,
+        combatLevel: game.combat.level // 保存关卡
     }));
     const status = document.getElementById('save-status');
     if (status) {
@@ -673,9 +845,13 @@ function loadGame() {
         game.inventory = data.inventory || [];
         game.equipped = data.equipped || { cpu: null, ram: null, disk: null, net: null, pwr: null };
         game.inventory.forEach(i => { if(!i.count) i.count = 1; });
+        game.combat.level = data.combatLevel || 1; // 读取关卡
     }
     recalcPower();
     renderInventory();
+
+    // 初始化怪物
+    spawnEnemy();
 }
 
 window.resetGame = function() {
@@ -695,16 +871,28 @@ function init() {
     // 自动挂机循环
     setInterval(() => {
         if (game.stats.autoPower > 0) {
-            game.bytes += game.stats.autoPower;
-            updateUI();
-            tryDrop('auto');
 
-            spawnFloatingText(game.stats.autoPower, 'auto');
-            if (visualEls.core) {
-                visualEls.core.classList.remove('core-auto-pulse');
-                void visualEls.core.offsetWidth;
-                visualEls.core.classList.add('core-auto-pulse');
+            // --- 修改：挂机同时产出钱 ---
+            game.bytes += game.stats.autoPower;
+            // ---------------------------
+
+            // 自动攻击
+            damageEnemy(game.stats.autoPower);
+
+            // 更新UI
+            updateUI();
+
+            // 只有活着的时候才冒字
+            if (game.combat.currentHp > 0) {
+                spawnFloatingText(game.stats.autoPower, 'auto');
+                if (visualEls.core) {
+                    visualEls.core.classList.remove('core-auto-pulse');
+                    void visualEls.core.offsetWidth;
+                    visualEls.core.classList.add('core-auto-pulse');
+                }
             }
+            // 自动挂机概率掉落
+            tryDrop('auto');
         }
     }, 1000);
 
@@ -716,72 +904,24 @@ function init() {
         visualEls.core.addEventListener('mousedown', (e) => e.preventDefault());
     }
 }
-// --- 标签页切换逻辑 ---
+
+// 标签页切换
 window.switchTab = function(tabName) {
-    // 1. 隐藏所有视图
     document.getElementById('view-mining').style.display = 'none';
     document.getElementById('view-shop').style.display = 'none';
 
-    // 2. 显示目标视图
     document.getElementById(`view-${tabName}`).style.display = 'block';
 
-    // 3. 更新导航栏激活状态
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => item.classList.remove('active'));
 
-    // 简单的判断逻辑 (假设第0个是挖掘，第1个是商店)
     if (tabName === 'mining') navItems[0].classList.add('active');
     if (tabName === 'shop') navItems[1].classList.add('active');
 
-    // 4. 视觉优化：如果是进商店，刷新一下价格按钮状态
     if (tabName === 'shop') {
         updateUI();
     }
 };
 
-// --- 修改 updateUI 函数 ---
-// 把原来的 score 更新逻辑改成更新顶部 top-score
-// 原有函数体替换为：
-function updateUI() {
-    // 【修改】更新顶部的钱，而不是原来的大标题
-    const topScore = document.getElementById('top-score');
-    if(topScore) topScore.innerText = formatBytes(game.bytes);
-
-    // 原来的 .score-board 如果还在挖掘界面，也可以更新，防止空白
-    const oldScore = document.querySelector('.score-board span');
-    if(oldScore) oldScore.innerText = formatBytes(game.bytes); // 兼容旧代码
-
-    // 更新统计数据
-    const statsHTML = `
-        <p>点击: <span class="val" style="color:#fff">${formatBytes(game.stats.clickPower)}</span> 
-           <span style="font-size:0.8em; color:#ff003c">(${ (game.stats.critChance*100).toFixed(0) }% / x${game.stats.critDamage.toFixed(1)})</span>
-        </p>
-        <p>自动: <span class="val" style="color:#fff">${formatBytes(game.stats.autoPower)}</span>/s</p>
-        <p style="font-size:0.8em; color:#888; margin-top:5px;">
-           运气: <span style="color:#ffd700">${ (game.stats.luck * 100).toFixed(0) }%</span> 
-           折扣: <span style="color:#00e5ff">-${ (game.stats.discount * 100).toFixed(0) }%</span>
-        </p>
-    `;
-    const statsEl = document.querySelector('.stats');
-    if(statsEl) statsEl.innerHTML = statsHTML;
-
-    // 商店按钮状态更新 (保持不变)
-    GameConfig.shopCategories.forEach(cat => {
-        cat.items.forEach(item => {
-            const cost = getCost(item);
-            const btn = document.getElementById(`btn-${item.id}`);
-            const lvlLabel = document.getElementById(`lvl-${item.id}`);
-
-            if (btn) { // 必须加判断，因为商店可能不在当前DOM渲染中(如果做了虚拟列表)，但在我们这种简单隐藏模式下是存在的
-                if (btn.innerText !== "GET!") {
-                    btn.innerText = `${formatBytes(cost)} B`;
-                }
-                if (game.bytes >= cost) btn.classList.add('can-buy');
-                else btn.classList.remove('can-buy');
-            }
-            if(lvlLabel) lvlLabel.innerText = `(Lv.${game.levels[item.id]||0})`;
-        });
-    });
-}
 // 启动引擎
 init();

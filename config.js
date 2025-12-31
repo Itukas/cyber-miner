@@ -9,7 +9,16 @@ const GameConfig = {
         clickBasePower: 1,      // 初始点击力
         autoSaveInterval: 5000  // 自动存档间隔 (5秒)
     },
+// 【新增】战斗平衡性配置
+    combat: {
+        baseHp: 20,           // 1级怪物血量
+        hpGrowth: 1.12,       // 怪物血量成长幅度 (1.12 = 每级增加12%)
+        bossHpMult: 8,        // Boss血量是同级小怪的几倍
+        bossTime: 15,         // Boss战限时 (秒)
 
+        baseReward: 10,       // 1级怪物掉落金币
+        rewardGrowth: 1.12,   // 掉落成长幅度
+    },
     // 商店分类列表
     shopCategories: [
         // ==========================================
