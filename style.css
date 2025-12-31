@@ -226,57 +226,9 @@ footer {
     background: rgba(255, 77, 77, 0.1);
 }
 
-/* --- 【新增】可视化反馈区域 --- */
-.visual-feedback-area {
-    height: 120px; /* 固定高度占位 */
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    position: relative; /* 为内部绝对定位元素提供基准 */
-    margin: 10px 0;
-    overflow: hidden; /* 防止波纹溢出容器 */
-}
-
-/* 数据核心（外圈） */
-#data-core {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    border: 3px solid var(--accent-color);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    position: relative;
-    z-index: 2; /* 保证核心在波纹上面 */
-    background-color: rgba(0, 255, 65, 0.1);
-    box-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
-    transition: all 0.1s;
-}
-
-/* 数据核心（内圈实心） */
-.core-inner {
-    width: 30px;
-    height: 30px;
-    background-color: var(--accent-color);
-    border-radius: 50%;
-    box-shadow: 0 0 15px var(--accent-color);
-}
-
-/* 核心的待机呼吸动画 */
-.core-idle {
-    animation: coreBreathing 3s infinite ease-in-out;
-}
-
 @keyframes coreBreathing {
     0%, 100% { transform: scale(1); opacity: 0.8; box-shadow: 0 0 20px rgba(0, 255, 65, 0.3); }
     50% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 35px rgba(0, 255, 65, 0.6); }
-}
-
-/* 点击时的核心高亮状态（由JS添加这个类） */
-.core-active {
-    transform: scale(1.1) !important; /* 瞬间放大 */
-    background-color: rgba(0, 255, 65, 0.4) !important;
-    box-shadow: 0 0 50px var(--accent-color), inset 0 0 20px var(--accent-color) !important;
 }
 
 /* --- 波纹效果 --- */
@@ -532,13 +484,6 @@ footer {
     100% { transform: scale(1); opacity: 0; }
 }
 
-/* 核心被暴击时的状态 */
-.core-active-crit {
-    transform: scale(1.2) !important;
-    background-color: rgba(255, 0, 60, 0.5) !important;
-    box-shadow: 0 0 60px #ff003c, inset 0 0 20px #ff003c !important;
-    border-color: #ff003c !important;
-}
 /* 装备槽位 (5个并排) */
 /* --- 装备槽位样式优化 --- */
 .equip-slots {
@@ -611,62 +556,123 @@ footer {
 .slot.border-legendary { box-shadow: 0 0 10px rgba(255, 165, 0, 0.1); }
 .slot.border-mythic { box-shadow: 0 0 15px rgba(255, 0, 60, 0.15); }
 
-/* --- 悬浮提示框 (Tooltip) --- */
+
+/* --- 修改：可视化区域 --- */
+/* 增加一点高度，给变大的核心留空间 */
+.visual-feedback-area {
+    height: 160px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    margin: 20px 0; /* 增加上下间距 */
+    overflow: visible; /* 允许波纹稍微扩散出去 */
+}
+
+/* --- 修改：数据核心 (现在是按钮了) --- */
+#data-core {
+    width: 100px;  /* 变大！从60px -> 100px */
+    height: 100px;
+    border-radius: 50%;
+    border: 4px solid var(--accent-color); /* 边框加粗 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    z-index: 10; /* 提高层级，确保能点到 */
+    background-color: rgba(0, 255, 65, 0.15);
+    box-shadow: 0 0 30px rgba(0, 255, 65, 0.4);
+    transition: all 0.1s;
+    cursor: pointer; /* 【关键】变成手型光标 */
+    user-select: none; /* 防止点击时选中 */
+    -webkit-tap-highlight-color: transparent; /* 手机端去掉点击高亮背景 */
+}
+
+/* 核心内部 */
+.core-inner {
+    width: 50px; /* 内部也相应变大 */
+    height: 50px;
+    background-color: var(--accent-color);
+    border-radius: 50%;
+    box-shadow: 0 0 20px var(--accent-color);
+    pointer-events: none; /* 让点击穿透到父元素 */
+}
+
+/* 【新增】按下去的物理反馈 */
+#data-core:active {
+    transform: scale(0.9); /* 按下缩小 */
+    border-color: #fff;    /* 边框变白亮一下 */
+}
+
+/* 保持原有的动画逻辑，但要注意 transform 的冲突 */
+/* 我们把呼吸动画改用 box-shadow 实现，避免和 scale 冲突太严重 */
+@keyframes coreBreathing {
+    0%, 100% { box-shadow: 0 0 30px rgba(0, 255, 65, 0.4); opacity: 0.9; }
+    50% { box-shadow: 0 0 50px rgba(0, 255, 65, 0.7); opacity: 1; }
+}
+
+.core-idle {
+    animation: coreBreathing 3s infinite ease-in-out;
+}
+
+/* 暴击状态 (红) */
+.core-active-crit {
+    transform: scale(1.1) !important; /* 弹起 */
+    background-color: rgba(255, 0, 60, 0.5) !important;
+    box-shadow: 0 0 80px #ff003c, inset 0 0 30px #ff003c !important;
+    border-color: #ff003c !important;
+}
+
+/* 普通点击状态 (绿) */
+.core-active {
+    transform: scale(1.1) !important; /* 弹起 */
+    background-color: rgba(0, 255, 65, 0.5) !important;
+    box-shadow: 0 0 60px var(--accent-color), inset 0 0 20px var(--accent-color) !important;
+}
+
+/* ... 你的其他样式 ... */
+
+/* --- 【新增】悬浮提示框 (Tooltip) --- */
 .tooltip-container {
     position: fixed;
-    z-index: 1000; /* 保证在最上层 */
-    background-color: rgba(13, 17, 23, 0.95);
+    z-index: 1000;
+    background-color: rgba(13, 17, 23, 0.95); /* 深黑背景 */
     border: 1px solid #30363d;
     border-radius: 8px;
     padding: 12px;
-    min-width: 200px;
-    max-width: 260px;
-    pointer-events: none; /* 关键：让鼠标穿透悬浮窗，防止闪烁 */
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(5px);
+    min-width: 220px;
+    max-width: 280px;
+    pointer-events: none; /* 关键：让鼠标穿透，防止闪烁 */
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px); /* 毛玻璃特效 */
     font-size: 0.85rem;
     line-height: 1.5;
     color: #c9d1d9;
 }
 
-/* 头部信息 */
+/* 头部 */
 .tooltip-header {
     border-bottom: 1px solid #30363d;
     padding-bottom: 8px;
     margin-bottom: 8px;
 }
-.tooltip-title {
-    font-weight: bold;
-    font-size: 1rem;
-}
-.tooltip-sub {
-    font-size: 0.75rem;
-    color: #8b949e;
-    margin-top: 2px;
-}
+.tooltip-title { font-weight: bold; font-size: 1rem; }
+.tooltip-sub { font-size: 0.75rem; color: #8b949e; margin-top: 2px; }
 
 /* 属性行 */
-.tooltip-stat {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 4px;
-}
+.tooltip-stat { display: flex; justify-content: space-between; margin-bottom: 4px; }
 .stat-val { color: #fff; font-weight: bold; }
 
-/* 对比部分 */
+/* 对比区域 */
 .tooltip-compare {
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px dashed #30363d;
     font-size: 0.8rem;
 }
-.compare-row {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
+.compare-row { display: flex; align-items: center; gap: 5px; }
 
-/* 颜色类 */
-.text-better { color: #00ff41; } /* 提升-绿 */
-.text-worse { color: #ff4d4d; }  /* 下降-红 */
-.text-neutral { color: #8b949e; } /* 不变-灰 */
+/* 颜色状态 */
+.text-better { color: #00ff41; } /* 更好 (绿) */
+.text-worse { color: #ff4d4d; }  /* 更差 (红) */
+.text-neutral { color: #8b949e; } /* 一样 (灰) */
