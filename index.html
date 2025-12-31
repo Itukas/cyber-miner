@@ -39,7 +39,20 @@
             <div class="slot" id="slot-pwr" onclick="unequipItem('pwr')">PWR</div>
         </div>
 
-        <div class="section-title">背包 (<span id="bag-count">0</span>/20) - 点击装备/丢弃</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #30363d; padding-bottom:5px;">
+            <div class="section-title" style="border:none; margin:0;">背包 (<span id="bag-count">0</span>/50)</div>
+            <div>
+                <button id="btn-multi-sell" class="buy-btn" style="padding:4px 8px; font-size:0.8rem; width:auto;" onclick="toggleSellMode()">多选出售</button>
+            </div>
+        </div>
+
+        <div id="bulk-actions" style="display:none; gap:5px; margin-bottom:10px; flex-wrap:wrap;">
+            <button class="buy-btn" id="btn-confirm-sell" onclick="sellSelected()" disabled>请选择物品</button>
+            <span style="color:#666; font-size:0.8rem; align-self:center;">| 快速清理:</span>
+            <button class="danger-btn" style="font-size:0.7rem" onclick="sellByRarity('common')">卖普通</button>
+            <button class="danger-btn" style="font-size:0.7rem" onclick="sellByRarity('uncommon')">卖优秀</button>
+        </div>
+
         <div class="backpack-grid" id="backpack-grid">
         </div>
 
@@ -57,7 +70,7 @@
         <p id="save-status"></p>
     </footer>
 </div>
-
+<div id="game-tooltip" class="tooltip-container" style="display: none;"></div>
 <script src="config.js"></script>
 <script src="loot-config.js"></script>
 <script src="script.js"></script>

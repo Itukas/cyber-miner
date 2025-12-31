@@ -1,17 +1,29 @@
 // --- DOM 元素引用 ---
 const visualEls = {
     core: document.getElementById('data-core'),
-    rippleContainer: document.getElementById('ripple-container')
+    rippleContainer: document.getElementById('ripple-container'),
+    tooltip: document.getElementById('game-tooltip') // 【新增】,
 };
 
 // --- 全局游戏状态 ---
 let game = {
     bytes: GameConfig.settings.initialBytes,
-    clickPower: GameConfig.settings.clickBasePower,
-    autoPower: 0,
-    levels: {}, // 商店物品等级
-    inventory: [], // 背包
-    equipped: { cpu: null, ram: null, disk: null, net: null, pwr: null } // 装备槽
+    levels: {},
+    inventory: [],
+    equipped: { cpu: null, ram: null, disk: null, net: null, pwr: null },
+    // 动态计算属性
+    stats: {
+        clickPower: 1,
+        autoPower: 0,
+        critChance: 0,
+        critDamage: 1.5,
+        discount: 0,
+        luck: 1
+    },
+    flags: {
+        sellMode: false,
+        selectedIndices: []
+    }
 };
 
 // --- 辅助函数 ---
@@ -25,15 +37,21 @@ function findItemById(id) {
 
 function getCost(item) {
     const level = game.levels[item.id] || 0;
-    return Math.floor(item.baseCost * Math.pow(item.costMultiplier, level));
+    const discountMult = Math.max(0.1, 1 - game.stats.discount);
+    let cost = Math.floor(item.baseCost * Math.pow(item.costMultiplier, level));
+    return Math.floor(cost * discountMult);
 }
 
-// --- 核心算力计算 (包含商店 + 装备加成) ---
+// --- 核心算力计算 ---
 function recalcPower() {
     let baseClick = GameConfig.settings.clickBasePower;
     let baseAuto = 0;
 
-    // 1. 计算商店购买的基础属性
+    game.stats.critChance = 0;
+    game.stats.critDamage = 1.5;
+    game.stats.discount = 0;
+    game.stats.luck = 1;
+
     GameConfig.shopCategories.forEach(cat => {
         cat.items.forEach(item => {
             const level = game.levels[item.id] || 0;
@@ -43,45 +61,41 @@ function recalcPower() {
         });
     });
 
-    // 2. 计算装备加成
-    let clickMult = 1; // 点击倍率
-    let autoMult = 1;  // 自动倍率
-    let clickFlat = 0; // 点击附加值
-    let autoFlat = 0;  // 自动附加值
+    let clickMult = 1;
+    let autoMult = 1;
+    let clickFlat = 0;
+    let autoFlat = 0;
 
     for (let slot in game.equipped) {
         const item = game.equipped[slot];
         if (item) {
-            if (item.type === 'clickFlat') clickFlat += item.value;
-            if (item.type === 'autoFlat') autoFlat += item.value;
-            if (item.type === 'clickPct') clickMult += item.value;
-            if (item.type === 'autoPct') autoMult += item.value;
+            switch(item.type) {
+                case 'clickFlat': clickFlat += item.value; break;
+                case 'autoFlat':  autoFlat += item.value; break;
+                case 'clickPct':  clickMult += item.value; break;
+                case 'autoPct':   autoMult += item.value; break;
+                case 'critChance': game.stats.critChance += item.value; break;
+                case 'critDmg':    game.stats.critDamage += item.value; break;
+                case 'discount':   game.stats.discount += item.value; break;
+                case 'luck':       game.stats.luck += item.value; break;
+            }
         }
     }
 
-    // 3. 最终公式
-    game.clickPower = Math.floor((baseClick + clickFlat) * clickMult);
-    game.autoPower = Math.floor((baseAuto + autoFlat) * autoMult);
+    game.stats.clickPower = Math.floor((baseClick + clickFlat) * clickMult);
+    game.stats.autoPower = Math.floor((baseAuto + autoFlat) * autoMult);
 
-    // 4. 更新核心外观 (视觉进化)
     updateCoreVisuals();
 }
 
 // --- 掉落与背包系统 ---
-
-// 生成随机装备
 function generateLoot(source) {
-    // 【修改点】调用 LootConfig.settings.maxInventory
-    if (game.inventory.length >= LootConfig.settings.maxInventory) {
-        showToast("背包已满，无法拾取！", "#ff4d4d");
-        return;
-    }
+    const chance = (source === 'click' ? LootConfig.settings.dropChanceClick : LootConfig.settings.dropChanceAuto) * game.stats.luck;
+    if (Math.random() > chance) return;
 
-    // 随机稀有度
     const rand = Math.random();
     let rarityKey = 'common';
     let accum = 0;
-    // 【修改点】调用 LootConfig.rarity
     for (let key in LootConfig.rarity) {
         accum += LootConfig.rarity[key].prob;
         if (rand <= accum) {
@@ -90,117 +104,163 @@ function generateLoot(source) {
         }
     }
     const rarity = LootConfig.rarity[rarityKey];
-
-    // 随机底材
-    // 【修改点】调用 LootConfig.equipmentBase
     const baseItem = LootConfig.equipmentBase[Math.floor(Math.random() * LootConfig.equipmentBase.length)];
 
-    // 生成物品
-    const newItem = {
-        uid: Date.now() + Math.random(),
-        baseId: baseItem.name,
-        name: baseItem.name,
-        slot: baseItem.slot,
-        type: baseItem.type,
-        rarity: rarityKey,
-        value: baseItem.baseVal * rarity.multiplier,
-        desc: baseItem.desc,
-        isNew: true
-    };
+    const existingItem = game.inventory.find(i => i.baseId === baseItem.name && i.rarity === rarityKey);
 
-    game.inventory.push(newItem);
+    if (existingItem) {
+        existingItem.count++;
+        showToast(`获得: [${rarity.name}] ${baseItem.name} (堆叠 x${existingItem.count})`, rarity.color);
+    } else {
+        if (game.inventory.length >= LootConfig.settings.maxInventory) {
+            showToast("背包已满，无法拾取新物品！", "#ff4d4d");
+            return;
+        }
+        const newItem = {
+            baseId: baseItem.name,
+            name: baseItem.name,
+            slot: baseItem.slot,
+            type: baseItem.type,
+            rarity: rarityKey,
+            value: baseItem.baseVal * rarity.multiplier,
+            desc: baseItem.desc,
+            count: 1
+        };
+        game.inventory.push(newItem);
+        showToast(`获得: [${rarity.name}] ${newItem.name}`, rarity.color);
+    }
+
     saveGame();
     renderInventory();
-    showToast(`获得: [${rarity.name}] ${newItem.name}`, rarity.color);
 }
 
-// 尝试触发掉落
-function tryDrop(type) {
-    // 【修改点】调用 LootConfig.settings
-    const chance = type === 'click' ? LootConfig.settings.dropChanceClick : LootConfig.settings.dropChanceAuto;
-    if (Math.random() < chance) {
-        generateLoot(type);
+// --- 出售系统 ---
+function getSellPrice(item) {
+    const rarityCfg = LootConfig.rarity[item.rarity];
+    return Math.floor(LootConfig.settings.baseSellPrice * rarityCfg.sellMult);
+}
+
+window.toggleSellMode = function() {
+    game.flags.sellMode = !game.flags.sellMode;
+    game.flags.selectedIndices = [];
+    renderInventory();
+
+    const btn = document.getElementById('btn-multi-sell');
+    btn.innerText = game.flags.sellMode ? "取消选择" : "多选出售";
+    btn.classList.toggle('active-mode', game.flags.sellMode);
+
+    document.getElementById('bulk-actions').style.display = game.flags.sellMode ? 'flex' : 'none';
+};
+
+function toggleSelection(index) {
+    const pos = game.flags.selectedIndices.indexOf(index);
+    if (pos >= 0) {
+        game.flags.selectedIndices.splice(pos, 1);
+    } else {
+        game.flags.selectedIndices.push(index);
+    }
+    renderInventory();
+    updateBulkSellBtn();
+}
+
+function updateBulkSellBtn() {
+    const btn = document.getElementById('btn-confirm-sell');
+    if(game.flags.selectedIndices.length > 0) {
+        let total = 0;
+        game.flags.selectedIndices.forEach(idx => {
+            total += getSellPrice(game.inventory[idx]) * game.inventory[idx].count;
+        });
+        btn.innerText = `出售选中 (${formatBytes(total)})`;
+        btn.disabled = false;
+        btn.classList.add('can-buy');
+    } else {
+        btn.innerText = "请选择物品";
+        btn.disabled = true;
+        btn.classList.remove('can-buy');
     }
 }
 
-// 渲染背包和装备栏
-function renderInventory() {
-    const grid = document.getElementById('backpack-grid');
-    if (!grid) return;
+window.sellSelected = function() {
+    if (game.flags.selectedIndices.length === 0) return;
 
-    grid.innerHTML = '';
-    document.getElementById('bag-count').innerText = game.inventory.length;
+    let totalGain = 0;
+    game.flags.selectedIndices.sort((a, b) => b - a);
 
-    // 渲染背包物品
-    game.inventory.forEach((item, index) => {
-        const el = document.createElement('div');
-        // 【修改点】调用 LootConfig.rarity
-        const rarityCfg = LootConfig.rarity[item.rarity];
-
-        el.className = `item border-${item.rarity}`;
-        const icons = { cpu:'🧩', ram:'💾', disk:'💿', net:'📡', pwr:'🔋' };
-        el.innerHTML = `${icons[item.slot] || '📦'} <span class="item-lvl">${rarityCfg.name}</span>`;
-
-        el.onclick = () => showItemOptions(index);
-        grid.appendChild(el);
+    game.flags.selectedIndices.forEach(index => {
+        const item = game.inventory[index];
+        totalGain += getSellPrice(item) * item.count;
+        game.inventory.splice(index, 1);
     });
 
-    // 渲染已装备槽位
-    for (let slot in game.equipped) {
-        const item = game.equipped[slot];
-        const slotEl = document.getElementById(`slot-${slot}`);
-        if (!slotEl) continue;
+    game.bytes += totalGain;
+    showToast(`出售成功！获得 ${formatBytes(totalGain)}`, '#ffd700');
 
-        if (item) {
-            // 【修改点】调用 LootConfig.rarity
-            const rarityCfg = LootConfig.rarity[item.rarity];
-            slotEl.className = `slot border-${item.rarity}`;
-            slotEl.innerHTML = `${item.name}<br><span style="color:${rarityCfg.color}">${rarityCfg.name}</span>`;
-        } else {
-            slotEl.className = 'slot';
-            slotEl.innerHTML = slot.toUpperCase();
+    toggleSellMode();
+    saveGame();
+    updateUI();
+};
+
+window.sellByRarity = function(rarityKey) {
+    const levels = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
+    const targetLvl = levels.indexOf(rarityKey);
+
+    let totalGain = 0;
+    const newInventory = game.inventory.filter(item => {
+        const itemLvl = levels.indexOf(item.rarity);
+        if (itemLvl <= targetLvl) {
+            totalGain += getSellPrice(item) * item.count;
+            return false;
         }
-    }
-}
+        return true;
+    });
 
-// 显示物品详情
-function showItemOptions(index) {
+    if (game.inventory.length === newInventory.length) {
+        showToast("没有符合条件的物品", "#fff");
+        return;
+    }
+
+    if (confirm(`确定要出售所有 [${LootConfig.rarity[rarityKey].name}] 及以下的物品吗？\n预计获得: ${formatBytes(totalGain)}`)) {
+        game.inventory = newInventory;
+        game.bytes += totalGain;
+        showToast(`回收完成！获得 ${formatBytes(totalGain)}`, '#ffd700');
+        saveGame();
+        renderInventory();
+        updateUI();
+    }
+};
+
+window.sellOneItem = function(index) {
     const item = game.inventory[index];
-    const infoPanel = document.getElementById('item-info-panel');
-    // 【修改点】调用 LootConfig.rarity
-    const rarityCfg = LootConfig.rarity[item.rarity];
+    const price = getSellPrice(item);
 
-    let valStr = '';
-    if (item.type.includes('Pct')) {
-        valStr = `+${(item.value * 100).toFixed(1)}%`;
+    game.bytes += price;
+    if (item.count > 1) {
+        item.count--;
     } else {
-        valStr = `+${Math.floor(item.value)}`;
+        game.inventory.splice(index, 1);
+        document.getElementById('item-info-panel').innerText = "已出售";
     }
 
-    const typeName = item.type.includes('click') ? '点击算力' : '自动算力';
+    updateUI();
+    renderInventory();
+    saveGame();
+    spawnFloatingText(price, 'auto');
+};
 
-    infoPanel.innerHTML = `
-        <div style="color: ${rarityCfg.color}; font-weight:bold;">${rarityCfg.name} ${item.name}</div>
-        <div>效果: ${typeName} <span style="color:#fff">${valStr}</span></div>
-        <div style="margin-top:5px;">
-            <button class="buy-btn" onclick="equipItem(${index})">装备</button>
-            <button class="danger-btn" onclick="discardItem(${index})">丢弃</button>
-        </div>
-    `;
-}
-
-// 装备逻辑
+// --- 装备操作 ---
 window.equipItem = function(index) {
     const item = game.inventory[index];
-
-    // 如果槽位有东西，先卸下
     if (game.equipped[item.slot]) {
-        game.inventory.push(game.equipped[item.slot]);
+        returnToInventory(game.equipped[item.slot]);
     }
-
-    game.equipped[item.slot] = item;
-    game.inventory.splice(index, 1);
-
+    if (item.count > 1) {
+        item.count--;
+        const singleItem = {...item, count: 1};
+        game.equipped[item.slot] = singleItem;
+    } else {
+        game.equipped[item.slot] = item;
+        game.inventory.splice(index, 1);
+    }
     document.getElementById('item-info-panel').innerText = "已装备";
     recalcPower();
     saveGame();
@@ -208,36 +268,27 @@ window.equipItem = function(index) {
     updateUI();
 };
 
-// 卸下逻辑
 window.unequipItem = function(slot) {
     if (!game.equipped[slot]) return;
-
-    // 【修改点】调用 LootConfig.settings.maxInventory
-    if (game.inventory.length >= LootConfig.settings.maxInventory) {
-        showToast("背包已满，无法卸下！", "#ff4d4d");
-        return;
-    }
-
-    game.inventory.push(game.equipped[slot]);
+    const item = game.equipped[slot];
+    returnToInventory(item);
     game.equipped[slot] = null;
-
     recalcPower();
     saveGame();
     renderInventory();
     updateUI();
 };
 
-// 丢弃逻辑
-window.discardItem = function(index) {
-    if(confirm('确定要销毁这个装备吗？')) {
-        game.inventory.splice(index, 1);
-        document.getElementById('item-info-panel').innerText = "已丢弃";
-        saveGame();
-        renderInventory();
+function returnToInventory(item) {
+    const existing = game.inventory.find(i => i.baseId === item.baseId && i.rarity === item.rarity);
+    if (existing) {
+        existing.count++;
+    } else {
+        game.inventory.push(item);
     }
-};
+}
 
-// --- 渲染系统 (Render Shop) ---
+// --- 渲染相关 ---
 function renderShop() {
     const container = document.getElementById('shop-container');
     container.innerHTML = '';
@@ -274,7 +325,6 @@ function renderShop() {
     });
 }
 
-// --- 购买逻辑 ---
 window.buyItem = function (id) {
     const item = findItemById(id);
     if (!item) return;
@@ -294,104 +344,183 @@ window.buyItem = function (id) {
     }
 };
 
-// --- 视觉特效系统 ---
+// --- 渲染相关 ---
+function renderInventory() {
+    const grid = document.getElementById('backpack-grid');
+    if (!grid) return;
 
-function updateCoreVisuals() {
-    if (!visualEls.core) return;
-    const p = game.clickPower;
+    grid.innerHTML = '';
+    document.getElementById('bag-count').innerText = game.inventory.length;
 
-    visualEls.core.classList.remove('tier-1', 'tier-2', 'tier-3', 'tier-4');
+    const icons = { cpu:'🧩', ram:'💾', disk:'💿', net:'📡', pwr:'🔋' };
 
-    if (p < 50) visualEls.core.classList.add('tier-1');
-    else if (p < 500) visualEls.core.classList.add('tier-2');
-    else if (p < 5000) visualEls.core.classList.add('tier-3');
-    else visualEls.core.classList.add('tier-4');
+    // 1. 渲染背包物品
+    game.inventory.forEach((item, index) => {
+        const el = document.createElement('div');
+        el.className = `item border-${item.rarity}`;
+        if (game.flags.sellMode && game.flags.selectedIndices.includes(index)) {
+            el.classList.add('selected');
+        }
+
+        const countTag = item.count > 1 ? `<span class="item-count">${item.count}</span>` : '';
+        el.innerHTML = `${icons[item.slot] || '📦'} ${countTag}`;
+
+        el.onclick = () => {
+            if (game.flags.sellMode) {
+                toggleSelection(index);
+            } else {
+                showItemOptions(index);
+            }
+        };
+
+        // 背包物品悬停事件
+        if (!game.flags.sellMode) {
+            el.onmouseenter = () => showTooltip(item);
+            el.onmousemove = (e) => moveTooltip(e);
+            el.onmouseleave = hideTooltip;
+        }
+
+        grid.appendChild(el);
+    });
+
+    // 2. 渲染装备槽 (修改了这里)
+    for (let slot in game.equipped) {
+        const item = game.equipped[slot];
+        const slotEl = document.getElementById(`slot-${slot}`);
+        if (!slotEl) continue;
+
+        const iconChar = icons[slot] || '❓';
+
+        if (item) {
+            // --- 有装备 ---
+            const rarityCfg = LootConfig.rarity[item.rarity];
+            slotEl.className = `slot border-${item.rarity} equipped`;
+
+            slotEl.innerHTML = `
+                <div class="slot-icon">${iconChar}</div>
+                <div class="slot-name">${item.name}</div>
+                <div class="slot-rarity" style="color:${rarityCfg.color}">${rarityCfg.name}</div>
+            `;
+
+            // 【新增】给已装备物品绑定悬停事件
+            // 直接复用 showTooltip，它会自动识别这是“当前装备”
+            if (!game.flags.sellMode) {
+                slotEl.onmouseenter = () => showTooltip(item);
+                slotEl.onmousemove = (e) => moveTooltip(e);
+                slotEl.onmouseleave = hideTooltip;
+            }
+
+        } else {
+            // --- 空槽位 ---
+            slotEl.className = 'slot empty';
+            slotEl.innerHTML = `
+                <div class="slot-icon" style="opacity:0.2; filter:grayscale(1);">${iconChar}</div>
+                <div class="slot-name" style="color:#444">${slot.toUpperCase()}</div>
+                <div class="slot-rarity" style="color:#444">EMPTY</div>
+            `;
+
+            // 清理事件，防止残留
+            slotEl.onmouseenter = null;
+            slotEl.onmousemove = null;
+            slotEl.onmouseleave = null;
+        }
+    }
+}
+function showItemOptions(index) {
+    const item = game.inventory[index];
+    const infoPanel = document.getElementById('item-info-panel');
+    const rarityCfg = LootConfig.rarity[item.rarity];
+
+    let valStr = item.type.includes('Pct') || item.type.includes('Chance') || item.type.includes('discount') || item.type.includes('luck')
+        ? `+${(item.value * 100).toFixed(1)}%`
+        : `+${Math.floor(item.value)}`;
+
+    const price = getSellPrice(item);
+
+    infoPanel.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center">
+            <span style="color: ${rarityCfg.color}; font-weight:bold;">${rarityCfg.name} ${item.name}</span>
+            <span style="font-size:0.8em; color:#666">库存: ${item.count}</span>
+        </div>
+        <div style="margin:5px 0; color:#ddd">${item.desc} <span style="color:${rarityCfg.color}">(${valStr})</span></div>
+        <div style="margin-top:5px; display:flex; gap:10px;">
+            <button class="buy-btn" onclick="equipItem(${index})">装备</button>
+            <button class="buy-btn" style="background:#444; border-color:#666" onclick="sellOneItem(${index})">
+                出售 (⚡${formatBytes(price)})
+            </button>
+        </div>
+    `;
 }
 
-function createRipple() {
-    if (!visualEls.rippleContainer) return;
-    const ripple = document.createElement('div');
-    ripple.className = 'ripple';
-    visualEls.rippleContainer.appendChild(ripple);
-    setTimeout(() => ripple.remove(), 600);
-}
+// --- 主循环与初始化 ---
+function handleClick() {
+    let damage = game.stats.clickPower;
+    let isCrit = false;
 
-// 【修改】支持传入类型的浮动文字函数
-function spawnFloatingText(amount, type = 'click') {
-    const container = document.getElementById('floating-text-container');
-    if (!container) return;
-
-    const el = document.createElement('div');
-    // 如果是自动产出，可以加个小图标区别，比如 ⚡
-    el.innerText = (type === 'auto' ? '⚡+' : '+') + Math.floor(amount);
-    el.className = 'float-text';
-
-    if (type === 'auto') {
-        // 如果是自动，直接用自动的样式
-        el.classList.add('float-auto');
-    } else {
-        // 如果是点击，才根据数值大小决定样式 (视觉变强！)
-        if (amount < 10) el.classList.add('float-normal');
-        else if (amount < 100) el.classList.add('float-medium');
-        else if (amount < 1000) el.classList.add('float-high');
-        else if (amount < 10000) el.classList.add('float-epic');
-        else el.classList.add('float-legend');
+    if (Math.random() < game.stats.critChance) {
+        damage *= game.stats.critDamage;
+        isCrit = true;
     }
 
-    // 位置计算：
-    // 点击：在屏幕中心随机
-    // 自动：可以让它位置稍微固定一点，或者范围大一点
-    const x = window.innerWidth / 2 + (Math.random() - 0.5) * (type === 'auto' ? 200 : 100);
-    const y = window.innerHeight / 2 - 100 + (Math.random() - 0.5) * 50;
+    game.bytes += damage;
+    updateUI();
+    generateLoot('click');
 
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
+    const btn = document.getElementById('mine-btn');
+    if (btn) {
+        btn.style.transform = 'scale(0.97)';
+        setTimeout(() => btn.style.transform = 'scale(1)', 50);
+    }
 
-    container.appendChild(el);
+    if (visualEls.core) {
+        visualEls.core.className = isCrit ? 'core-active-crit' : 'core-active';
+        void visualEls.core.offsetWidth;
+        setTimeout(() => visualEls.core.className = '', 150);
+    }
 
-    // 自动产出的文字飘得慢，多留一会
-    setTimeout(() => el.remove(), type === 'auto' ? 1500 : 1000);
-}
-function showToast(msg, color) {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-    const toast = document.createElement('div');
-    toast.className = 'toast';
-    toast.style.borderLeftColor = color || '#fff';
-    toast.innerHTML = msg;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+    createRipple(isCrit ? 'red' : 'green');
+    spawnFloatingText(damage, isCrit ? 'crit' : 'click');
 }
 
-// --- UI 更新 ---
 function updateUI() {
-    document.getElementById('score').innerText = Math.floor(game.bytes);
-    document.getElementById('click-power').innerText = game.clickPower;
-    document.getElementById('auto-power').innerText = game.autoPower;
+    document.getElementById('score').innerText = formatBytes(game.bytes);
+
+    const statsHTML = `
+        <p>点击: <span class="val">${formatBytes(game.stats.clickPower)}</span> 
+           <small style="color:#ff003c" title="暴击率/暴击伤害">(${ (game.stats.critChance*100).toFixed(0) }% / x${game.stats.critDamage.toFixed(1)})</small>
+        </p>
+        <p>自动: <span class="val">${formatBytes(game.stats.autoPower)}</span>/s</p>
+        <p>幸运: <span class="val" style="color:#ffd700">${ (game.stats.luck * 100).toFixed(0) }%</span> 
+           折扣: <span class="val" style="color:#00e5ff">-${ (game.stats.discount * 100).toFixed(0) }%</span>
+        </p>
+    `;
+    const statsEl = document.querySelector('.stats');
+    if(statsEl) statsEl.innerHTML = statsHTML;
 
     GameConfig.shopCategories.forEach(cat => {
         cat.items.forEach(item => {
             const cost = getCost(item);
-            const level = game.levels[item.id] || 0;
             const btn = document.getElementById(`btn-${item.id}`);
             const lvlLabel = document.getElementById(`lvl-${item.id}`);
-
             if (btn && btn.innerText !== "GET!") {
-                btn.innerText = `${cost} B`;
-            }
-            if (lvlLabel) lvlLabel.innerText = `(Lv.${level})`;
-
-            if (btn) {
+                btn.innerText = `${formatBytes(cost)} B`;
                 if (game.bytes >= cost) btn.classList.add('can-buy');
                 else btn.classList.remove('can-buy');
             }
+            if(lvlLabel) lvlLabel.innerText = `(Lv.${game.levels[item.id]||0})`;
         });
     });
 }
 
-// --- 存档与初始化 ---
+function formatBytes(num) {
+    if (num < 1000) return Math.floor(num);
+    if (num < 1000000) return (num/1000).toFixed(1) + 'k';
+    if (num < 1000000000) return (num/1000000).toFixed(2) + 'M';
+    return (num/1000000000).toFixed(2) + 'G';
+}
+
 function saveGame() {
-    localStorage.setItem('CyberMinerSave_v2', JSON.stringify({
+    localStorage.setItem('CyberMinerSave_v3', JSON.stringify({
         bytes: game.bytes,
         levels: game.levels,
         inventory: game.inventory,
@@ -405,81 +534,228 @@ function saveGame() {
 }
 
 function loadGame() {
-    const save = localStorage.getItem('CyberMinerSave_v2');
+    const save = localStorage.getItem('CyberMinerSave_v3');
     if (save) {
         const data = JSON.parse(save);
         game.bytes = data.bytes || 0;
         game.levels = data.levels || {};
         game.inventory = data.inventory || [];
         game.equipped = data.equipped || { cpu: null, ram: null, disk: null, net: null, pwr: null };
+        game.inventory.forEach(i => { if(!i.count) i.count = 1; });
     }
     recalcPower();
     renderInventory();
 }
 
-window.resetGame = function () {
+window.resetGame = function() {
     if (confirm('确定要清空数据重来吗？')) {
-        localStorage.removeItem('CyberMinerSave_v2');
+        localStorage.removeItem('CyberMinerSave_v3');
         location.reload();
     }
 };
 
-// 启动引擎
+// --- 视觉特效补全 ---
+function updateCoreVisuals() {
+    if (!visualEls.core) return;
+    const p = game.stats.clickPower;
+    visualEls.core.classList.remove('tier-1', 'tier-2', 'tier-3', 'tier-4');
+    if (p < 50) visualEls.core.classList.add('tier-1');
+    else if (p < 500) visualEls.core.classList.add('tier-2');
+    else if (p < 5000) visualEls.core.classList.add('tier-3');
+    else visualEls.core.classList.add('tier-4');
+}
+
+function spawnFloatingText(amount, type) {
+    const container = document.getElementById('floating-text-container');
+    if (!container) return;
+    const el = document.createElement('div');
+    el.className = 'float-text';
+
+    if (type === 'crit') {
+        el.innerText = '💥 ' + formatBytes(amount);
+        el.classList.add('float-crit');
+    } else if (type === 'auto') {
+        el.innerText = '⚡ ' + formatBytes(amount);
+        el.classList.add('float-auto');
+    } else {
+        el.innerText = '+' + formatBytes(amount);
+        if(amount < 100) el.classList.add('float-normal');
+        else el.classList.add('float-high');
+    }
+
+    const x = window.innerWidth / 2 + (Math.random() - 0.5) * (type==='auto'?200:100);
+    const y = window.innerHeight / 2 - 100 + (Math.random() - 0.5) * 50;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 1200);
+}
+
+function createRipple(color) {
+    if (!visualEls.rippleContainer) return;
+    const ripple = document.createElement('div');
+    ripple.className = 'ripple';
+    if(color === 'red') ripple.style.borderColor = '#ff003c';
+    visualEls.rippleContainer.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 600);
+}
+
+function showToast(msg, color) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.style.borderLeftColor = color || '#fff';
+    toast.innerHTML = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
 function init() {
-    renderShop(); // 渲染商店
-    loadGame();   // 加载数据
-    updateUI();   // 初始UI更新
+    renderShop();
+    loadGame();
+    updateUI();
 
-    // 自动挂机循环
-// 自动挂机循环 (在 init 函数里)
     setInterval(() => {
-        if (game.autoPower > 0) {
-            game.bytes += game.autoPower;
+        if (game.stats.autoPower > 0) {
+            game.bytes += game.stats.autoPower;
             updateUI();
-            tryDrop('auto');
+            generateLoot('auto');
 
-            // --- 【新增】自动挖矿的视觉反馈 ---
-
-            // 1. 冒出文字 (传入 'auto' 类型)
-            spawnFloatingText(game.autoPower, 'auto');
-
-            // 2. 核心轻微跳动 (呼吸感)
+            spawnFloatingText(game.stats.autoPower, 'auto');
             if (visualEls.core) {
-                // 移除旧动画以允许重新触发
                 visualEls.core.classList.remove('core-auto-pulse');
-                void visualEls.core.offsetWidth; // 强制重绘
+                void visualEls.core.offsetWidth;
                 visualEls.core.classList.add('core-auto-pulse');
             }
         }
     }, 1000);
 
-    // 自动存档
     setInterval(saveGame, GameConfig.settings.autoSaveInterval);
 
-    // 大按钮点击事件
     const mineBtn = document.getElementById('mine-btn');
     if (mineBtn) {
-        mineBtn.addEventListener('click', () => {
-            // 逻辑
-            game.bytes += game.clickPower;
-            updateUI();
-            tryDrop('click'); // 点击也有概率掉落
-
-            // 视觉反馈
-            mineBtn.style.transform = 'scale(0.97)';
-            setTimeout(() => mineBtn.style.transform = 'scale(1)', 50);
-
-            if (visualEls.core) {
-                visualEls.core.classList.remove('core-active');
-                void visualEls.core.offsetWidth;
-                visualEls.core.classList.add('core-active');
-                setTimeout(() => visualEls.core.classList.remove('core-active'), 100);
-            }
-
-            createRipple();
-            spawnFloatingText(game.clickPower);
-        });
+        mineBtn.addEventListener('click', handleClick);
     }
 }
 
+// --- 悬浮窗系统 (Tooltip System) ---
+
+// 1. 显示 Tooltip
+function showTooltip(item) {
+    if (!visualEls.tooltip) return;
+
+    const rarityCfg = LootConfig.rarity[item.rarity];
+    const equippedItem = game.equipped[item.slot]; // 获取当前槽位的装备
+
+    // 格式化当前物品数值
+    const currentStatStr = formatStat(item.type, item.value);
+    const typeName = getStatName(item.type);
+
+    let compareHTML = '';
+
+    // --- 对比逻辑 ---
+    if (equippedItem) {
+        // 如果已装备了物品
+        if (equippedItem.uid === item.uid) {
+            compareHTML = `<div class="tooltip-compare text-neutral">当前已装备</div>`;
+        } else {
+            compareHTML = `<div class="tooltip-compare"><div>VS 已装备: <span style="color:#ccc">${equippedItem.name}</span></div>`;
+
+            // 情况 A: 属性类型相同 (直接比数值)
+            if (equippedItem.type === item.type) {
+                const diff = item.value - equippedItem.value;
+                if (diff !== 0) {
+                    const isBetter = diff > 0;
+                    const sign = isBetter ? '+' : '';
+                    // 格式化差值 (如果是百分比类型，要乘100)
+                    let diffStr = '';
+                    if (item.type.includes('Pct') || item.type.includes('Chance') || item.type.includes('discount') || item.type.includes('luck')) {
+                        diffStr = `${sign}${(diff * 100).toFixed(1)}%`;
+                    } else {
+                        diffStr = `${sign}${Math.floor(diff)}`;
+                    }
+
+                    compareHTML += `<div class="compare-row ${isBetter ? 'text-better' : 'text-worse'}">
+                        ${typeName} ${diffStr}
+                    </div>`;
+                } else {
+                    compareHTML += `<div class="compare-row text-neutral">属性无变化</div>`;
+                }
+            }
+            // 情况 B: 属性类型不同 (显示获得什么，失去什么)
+            else {
+                const oldStatStr = formatStat(equippedItem.type, equippedItem.value);
+                const oldTypeName = getStatName(equippedItem.type);
+
+                compareHTML += `
+                    <div class="compare-row text-better">+ 获得: ${typeName} ${currentStatStr}</div>
+                    <div class="compare-row text-worse">- 失去: ${oldTypeName} ${oldStatStr}</div>
+                `;
+            }
+            compareHTML += `</div>`;
+        }
+    } else {
+        // 槽位是空的
+        compareHTML = `<div class="tooltip-compare text-better">当前槽位为空 (建议装备)</div>`;
+    }
+
+    // 组装最终 HTML
+    visualEls.tooltip.innerHTML = `
+        <div class="tooltip-header" style="border-color: ${rarityCfg.color}">
+            <div class="tooltip-title" style="color: ${rarityCfg.color}">${item.name}</div>
+            <div class="tooltip-sub">${rarityCfg.name} ${item.slot.toUpperCase()}</div>
+        </div>
+        <div class="tooltip-stat">
+            <span>${typeName}</span>
+            <span class="stat-val">${currentStatStr}</span>
+        </div>
+        <div style="font-size:0.75rem; color:#888; margin-top:5px;">${item.desc}</div>
+        ${compareHTML}
+        <div style="margin-top:8px; font-size:0.7rem; color:#666;">点击装备</div>
+    `;
+
+    visualEls.tooltip.style.display = 'block';
+}
+
+// 2. 移动 Tooltip (跟随鼠标)
+function moveTooltip(e) {
+    if (!visualEls.tooltip) return;
+    // 稍微偏移一点，避免挡住鼠标
+    const x = e.clientX + 15;
+    const y = e.clientY + 15;
+
+    // 防止溢出屏幕右边/下边 (简单的边界检测)
+    const rect = visualEls.tooltip.getBoundingClientRect();
+    const finalX = (x + rect.width > window.innerWidth) ? e.clientX - rect.width - 10 : x;
+    const finalY = (y + rect.height > window.innerHeight) ? e.clientY - rect.height - 10 : y;
+
+    visualEls.tooltip.style.left = `${finalX}px`;
+    visualEls.tooltip.style.top = `${finalY}px`;
+}
+
+// 3. 隐藏 Tooltip
+function hideTooltip() {
+    if (visualEls.tooltip) {
+        visualEls.tooltip.style.display = 'none';
+    }
+}
+
+// --- 辅助工具：格式化显示 ---
+function getStatName(type) {
+    const map = {
+        clickFlat: '点击算力', autoFlat: '自动算力', clickPct: '点击加成', autoPct: '自动加成',
+        critChance: '暴击率', critDmg: '暴击伤害', discount: '商店折扣', luck: '幸运值'
+    };
+    return map[type] || '未知属性';
+}
+
+function formatStat(type, value) {
+    if (type.includes('Pct') || type.includes('Chance') || type.includes('discount') || type.includes('luck')) {
+        return `+${(value * 100).toFixed(1)}%`;
+    }
+    return `+${Math.floor(value)}`;
+}
+
+// 启动！
 init();
