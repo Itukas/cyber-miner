@@ -3,71 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyber Miner v2.0</title>
+    <title>Cyber Miner v3.0</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="floating-text-container"></div>
-<div class="container">
-    <header>
-        <h1>CYBER MINER</h1>
-        <p>配置驱动版</p>
-    </header>
 
-    <section class="display-area">
-        <div class="score-board">
-            <span id="score">0</span> BYTES
-        </div>
-        <div class="stats">
-            <p>点击算力: <span id="click-power">0</span> /次</p>
-            <p>自动算力: <span id="auto-power">0</span> /秒</p>
-        </div>
-    </section>
-    <section class="visual-feedback-area">
-        <div id="data-core" class="core-idle">
-            <div class="core-inner"></div>
-        </div>
-        <div id="ripple-container"></div>
-    </section>
-    <section class="inventory-section">
-        <div class="section-title">装备槽位 (点击卸下)</div>
-        <div class="equip-slots">
-            <div class="slot" id="slot-cpu" onclick="unequipItem('cpu')">CPU</div>
-            <div class="slot" id="slot-ram" onclick="unequipItem('ram')">RAM</div>
-            <div class="slot" id="slot-disk" onclick="unequipItem('disk')">DISK</div>
-            <div class="slot" id="slot-net" onclick="unequipItem('net')">NET</div>
-            <div class="slot" id="slot-pwr" onclick="unequipItem('pwr')">PWR</div>
-        </div>
-
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #30363d; padding-bottom:5px;">
-            <div class="section-title" style="border:none; margin:0;">背包 (<span id="bag-count">0</span>/50)</div>
-            <div>
-                <button id="btn-multi-sell" class="buy-btn" style="padding:4px 8px; font-size:0.8rem; width:auto;" onclick="toggleSellMode()">多选出售</button>
-            </div>
-        </div>
-
-        <div id="bulk-actions" style="display:none; gap:5px; margin-bottom:10px; flex-wrap:wrap;">
-            <button class="buy-btn" id="btn-confirm-sell" onclick="sellSelected()" disabled>请选择物品</button>
-            <span style="color:#666; font-size:0.8rem; align-self:center;">| 快速清理:</span>
-            <button class="danger-btn" style="font-size:0.7rem" onclick="sellByRarity('common')">卖普通</button>
-            <button class="danger-btn" style="font-size:0.7rem" onclick="sellByRarity('uncommon')">卖优秀</button>
-        </div>
-
-        <div class="backpack-grid" id="backpack-grid">
-        </div>
-
-        <div id="item-info-panel">点击物品查看详情</div>
-    </section>
-
-    <section class="shop-area" id="shop-container">
-    </section>
-
-    <footer>
-        <button onclick="resetGame()" class="danger-btn">重置进度</button>
-        <p id="save-status"></p>
-    </footer>
+<div class="top-bar">
+    <div class="res-icon">⚡</div>
+    <div class="res-amount" id="top-score">0</div>
+    <div class="res-unit">BYTES</div>
 </div>
+
+<div class="container">
+
+    <div id="view-mining" class="game-view active">
+        <section class="display-area">
+            <div class="stats">
+                <p>点击: <span id="click-power">0</span></p>
+                <p>自动: <span id="auto-power">0</span>/s</p>
+            </div>
+        </section>
+
+        <section class="visual-feedback-area">
+            <div id="data-core" class="core-idle">
+                <div class="core-inner"></div>
+            </div>
+            <div id="ripple-container"></div>
+        </section>
+
+        <section class="inventory-section">
+            <div class="section-title">装备槽位</div>
+            <div class="equip-slots">
+                <div class="slot" id="slot-cpu" onclick="unequipItem('cpu')">CPU</div>
+                <div class="slot" id="slot-ram" onclick="unequipItem('ram')">RAM</div>
+                <div class="slot" id="slot-disk" onclick="unequipItem('disk')">DISK</div>
+                <div class="slot" id="slot-net" onclick="unequipItem('net')">NET</div>
+                <div class="slot" id="slot-pwr" onclick="unequipItem('pwr')">PWR</div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #30363d; padding-bottom:5px;">
+                <div class="section-title" style="border:none; margin:0;">背包 (<span id="bag-count">0</span>/50)</div>
+                <button id="btn-multi-sell" class="buy-btn small-btn" onclick="toggleSellMode()">多选出售</button>
+            </div>
+
+            <div id="bulk-actions" style="display:none; gap:5px; margin-bottom:10px; flex-wrap:wrap;">
+                <button class="buy-btn" id="btn-confirm-sell" onclick="sellSelected()" disabled>确认出售</button>
+                <button class="danger-btn" onclick="sellByRarity('common')">卖白</button>
+                <button class="danger-btn" onclick="sellByRarity('uncommon')">卖绿</button>
+            </div>
+
+            <div class="backpack-grid" id="backpack-grid"></div>
+            <div id="item-info-panel">点击物品查看详情</div>
+        </section>
+
+        <div style="height: 80px;"></div>
+    </div>
+
+    <div id="view-shop" class="game-view" style="display:none">
+        <header class="shop-intro">
+            <h2>黑客黑市</h2>
+            <p>只要有 Bytes，这里什么都有</p>
+        </header>
+
+        <section class="shop-area" id="shop-container">
+        </section>
+
+        <div style="height: 80px;"></div>
+    </div>
+
+</div>
+
+<nav class="bottom-nav">
+    <button class="nav-item active" onclick="switchTab('mining')">
+        <span class="nav-icon">⛏️</span>
+        <span>挖掘</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('shop')">
+        <span class="nav-icon">🛒</span>
+        <span>商店</span>
+    </button>
+    <button class="nav-item" onclick="resetGame()">
+        <span class="nav-icon">⚙️</span>
+        <span>重置</span>
+    </button>
+</nav>
+
 <div id="game-tooltip" class="tooltip-container" style="display: none;"></div>
+
 <script src="config.js"></script>
 <script src="loot-config.js"></script>
 <script src="script.js"></script>

@@ -716,6 +716,72 @@ function init() {
         visualEls.core.addEventListener('mousedown', (e) => e.preventDefault());
     }
 }
+// --- 标签页切换逻辑 ---
+window.switchTab = function(tabName) {
+    // 1. 隐藏所有视图
+    document.getElementById('view-mining').style.display = 'none';
+    document.getElementById('view-shop').style.display = 'none';
 
+    // 2. 显示目标视图
+    document.getElementById(`view-${tabName}`).style.display = 'block';
+
+    // 3. 更新导航栏激活状态
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => item.classList.remove('active'));
+
+    // 简单的判断逻辑 (假设第0个是挖掘，第1个是商店)
+    if (tabName === 'mining') navItems[0].classList.add('active');
+    if (tabName === 'shop') navItems[1].classList.add('active');
+
+    // 4. 视觉优化：如果是进商店，刷新一下价格按钮状态
+    if (tabName === 'shop') {
+        updateUI();
+    }
+};
+
+// --- 修改 updateUI 函数 ---
+// 把原来的 score 更新逻辑改成更新顶部 top-score
+// 原有函数体替换为：
+function updateUI() {
+    // 【修改】更新顶部的钱，而不是原来的大标题
+    const topScore = document.getElementById('top-score');
+    if(topScore) topScore.innerText = formatBytes(game.bytes);
+
+    // 原来的 .score-board 如果还在挖掘界面，也可以更新，防止空白
+    const oldScore = document.querySelector('.score-board span');
+    if(oldScore) oldScore.innerText = formatBytes(game.bytes); // 兼容旧代码
+
+    // 更新统计数据
+    const statsHTML = `
+        <p>点击: <span class="val" style="color:#fff">${formatBytes(game.stats.clickPower)}</span> 
+           <span style="font-size:0.8em; color:#ff003c">(${ (game.stats.critChance*100).toFixed(0) }% / x${game.stats.critDamage.toFixed(1)})</span>
+        </p>
+        <p>自动: <span class="val" style="color:#fff">${formatBytes(game.stats.autoPower)}</span>/s</p>
+        <p style="font-size:0.8em; color:#888; margin-top:5px;">
+           运气: <span style="color:#ffd700">${ (game.stats.luck * 100).toFixed(0) }%</span> 
+           折扣: <span style="color:#00e5ff">-${ (game.stats.discount * 100).toFixed(0) }%</span>
+        </p>
+    `;
+    const statsEl = document.querySelector('.stats');
+    if(statsEl) statsEl.innerHTML = statsHTML;
+
+    // 商店按钮状态更新 (保持不变)
+    GameConfig.shopCategories.forEach(cat => {
+        cat.items.forEach(item => {
+            const cost = getCost(item);
+            const btn = document.getElementById(`btn-${item.id}`);
+            const lvlLabel = document.getElementById(`lvl-${item.id}`);
+
+            if (btn) { // 必须加判断，因为商店可能不在当前DOM渲染中(如果做了虚拟列表)，但在我们这种简单隐藏模式下是存在的
+                if (btn.innerText !== "GET!") {
+                    btn.innerText = `${formatBytes(cost)} B`;
+                }
+                if (game.bytes >= cost) btn.classList.add('can-buy');
+                else btn.classList.remove('can-buy');
+            }
+            if(lvlLabel) lvlLabel.innerText = `(Lv.${game.levels[item.id]||0})`;
+        });
+    });
+}
 // 启动引擎
 init();

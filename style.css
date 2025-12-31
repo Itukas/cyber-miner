@@ -676,3 +676,169 @@ footer {
 .text-better { color: #00ff41; } /* 更好 (绿) */
 .text-worse { color: #ff4d4d; }  /* 更差 (红) */
 .text-neutral { color: #8b949e; } /* 一样 (灰) */
+
+/* --- 基础布局调整 --- */
+body {
+    padding-top: 60px; /* 给顶部栏留空间 */
+    padding-bottom: 70px; /* 给底部栏留空间 */
+}
+
+.container {
+    padding: 10px; /* 减小一点内边距 */
+    max-width: 800px;
+}
+
+/* --- 顶部资源栏 (固定) --- */
+.top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 50px;
+    background: rgba(13, 17, 23, 0.95);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+}
+
+.res-icon { font-size: 1.2rem; animation: pulse 2s infinite; }
+.res-amount { font-size: 1.5rem; font-weight: bold; color: #fff; font-family: monospace; }
+.res-unit { color: var(--accent-color); font-size: 0.8rem; font-weight: bold; }
+
+/* --- 底部导航栏 (固定) --- */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 60px;
+    background: #161b22;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom); /* 适配 iPhone X+ */
+}
+
+.nav-item {
+    background: none;
+    border: none;
+    color: #8b949e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+}
+
+.nav-item .nav-icon { font-size: 1.4rem; margin-bottom: 3px; }
+
+.nav-item.active {
+    color: var(--accent-color);
+    background: rgba(0, 255, 65, 0.05);
+}
+
+.nav-item:active { transform: scale(0.95); }
+
+/* --- 商店美化 (紧凑版) --- */
+.shop-intro {
+    text-align: center;
+    margin-bottom: 20px;
+    border-bottom: 1px dashed var(--border-color);
+    padding-bottom: 10px;
+}
+.shop-intro h2 { margin: 0; color: #fff; font-size: 1.5rem; }
+.shop-intro p { margin: 5px 0 0; color: #666; font-size: 0.8rem; }
+
+/* 更加紧凑的网格 */
+.shop-grid {
+    display: grid;
+    /* 核心：卡片宽度缩小到 130px */
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+    margin-bottom: 30px;
+}
+
+/* 商店分类标题 */
+.shop-header {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    font-size: 1rem;
+    color: var(--accent-color);
+    border-left: 3px solid var(--accent-color);
+    padding-left: 8px;
+    background: linear-gradient(90deg, rgba(0,255,65,0.1), transparent);
+}
+
+/* 紧凑卡片样式 */
+.upgrade-item.card-style {
+    background-color: #1c2128;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px;
+    min-height: auto; /* 取消最小高度限制 */
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* 标题更小 */
+.upgrade-item .info h3 {
+    font-size: 0.9rem;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 描述文字限制行数 */
+.upgrade-item .desc {
+    font-size: 0.7rem;
+    height: 2.8em; /* 约两行高度 */
+    line-height: 1.4;
+    margin-bottom: 5px;
+    color: #666;
+    overflow: hidden;
+}
+
+/* 属性标签 */
+.upgrade-item .meta-info {
+    background: #0d1117;
+    padding: 2px 6px;
+    font-size: 0.7rem;
+    border-radius: 4px;
+    margin-bottom: 0;
+}
+
+/* 购买按钮紧凑化 */
+.upgrade-item .buy-btn {
+    padding: 6px 0;
+    font-size: 0.8rem;
+    margin-top: auto;
+}
+
+/* 小按钮通用样式 */
+.small-btn {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    min-width: auto;
+}
+
+/* 隐藏类 */
+.hidden { display: none !important; }
+
+/* 修复可视化区域位置 */
+.visual-feedback-area {
+    margin: 30px 0; /* 增加一点间距，让核心不那么挤 */
+}
