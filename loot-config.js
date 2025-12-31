@@ -12,7 +12,7 @@ const LootConfig = {
     settings: {
         dropChanceClick: 0.05,
         dropChanceAuto: 0.02,
-        maxInventory: 50,       // 堆叠后可以适当扩容背包
+        maxInventory: 200,       // 堆叠后可以适当扩容背包
         baseSellPrice: 50       // 基础回收价格 (普通装备卖50)
     },
 
