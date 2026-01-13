@@ -14,17 +14,25 @@ export function updateCoreVisuals() {
 }
 
 // 核心跳动动画 (自动挖矿时调用)
+let pulseRafId = 0;
 export function pulseCore() {
-    if (visualEls.core) {
-        visualEls.core.classList.remove('core-auto-pulse');
-        void visualEls.core.offsetWidth; // 强制重绘
+    if (!visualEls.core) return;
+    // 避免 offsetWidth 强制重排：用 rAF 重新触发动画
+    visualEls.core.classList.remove('core-auto-pulse');
+    if (pulseRafId) cancelAnimationFrame(pulseRafId);
+    pulseRafId = requestAnimationFrame(() => {
         visualEls.core.classList.add('core-auto-pulse');
-    }
+        pulseRafId = 0;
+    });
 }
 
 // 创建波纹
 export function createRipple(color) {
     if (!visualEls.rippleContainer) return;
+    // 防止长期运行堆积（理论上不会，但保险）
+    while (visualEls.rippleContainer.childElementCount > 30) {
+        visualEls.rippleContainer.firstElementChild?.remove();
+    }
     const ripple = document.createElement('div');
     ripple.className = 'ripple';
     if(color === 'red') ripple.style.borderColor = '#ff003c';
@@ -36,6 +44,10 @@ export function createRipple(color) {
 export function spawnFloatingText(amount, type) {
     const container = document.getElementById('floating-text-container');
     if (!container) return;
+    // 高频触发时限制数量，避免 DOM 过多导致卡顿
+    while (container.childElementCount > 40) {
+        container.firstElementChild?.remove();
+    }
     const el = document.createElement('div');
     el.className = 'float-text';
 
