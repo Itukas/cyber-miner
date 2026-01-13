@@ -9,38 +9,101 @@ import {
 } from './inventory.js'; // 后面会创建这个文件
 import { showTooltip, moveTooltip, hideTooltip } from './visuals.js'; // 后面会创建
 
+// --- 轻量缓存：减少重复 DOM 查询与无效重绘 ---
+const uiCache = {
+    scoreEl: null,
+    statsEl: null,
+    bagCountEl: null,
+    // shop
+    shopInited: false,
+    shopBtnById: new Map(),
+    shopLvlById: new Map(),
+    lastCostById: new Map(),
+    lastCanBuyById: new Map(),
+    // last values
+    lastBytes: null,
+    lastStatsKey: '',
+    lastBagCount: null,
+};
+
+function ensureUIRefs() {
+    if (!uiCache.scoreEl) uiCache.scoreEl = document.getElementById('score');
+    if (!uiCache.statsEl) uiCache.statsEl = document.querySelector('.stats');
+    if (!uiCache.bagCountEl) uiCache.bagCountEl = document.getElementById('bag-count');
+
+    // 商店元素在 renderShop() 之后才存在：懒初始化一次
+    if (!uiCache.shopInited) {
+        uiCache.shopBtnById.clear();
+        uiCache.shopLvlById.clear();
+        GameConfig.shopCategories.forEach(cat => {
+            cat.items.forEach(item => {
+                uiCache.shopBtnById.set(item.id, document.getElementById(`btn-${item.id}`));
+                uiCache.shopLvlById.set(item.id, document.getElementById(`lvl-${item.id}`));
+            });
+        });
+        uiCache.shopInited = true;
+    }
+}
+
 // 更新顶部 UI 数值
 export function updateUI() {
+    ensureUIRefs();
+
     // 1. 分数
-    const scoreEl = document.getElementById('score');
-    if(scoreEl) scoreEl.innerText = formatBytes(game.bytes);
+    if (uiCache.scoreEl && uiCache.lastBytes !== game.bytes) {
+        // textContent 比 innerText 更少触发布局
+        uiCache.scoreEl.textContent = String(formatBytes(game.bytes));
+        uiCache.lastBytes = game.bytes;
+    }
 
     // 2. 统计面板
-    const statsHTML = `
-        <p>点击: <span class="val">${formatBytes(game.stats.clickPower)}</span> 
-           <small style="color:#ff003c" title="暴击率/暴击伤害">(${ (game.stats.critChance*100).toFixed(0) }% / x${game.stats.critDamage.toFixed(1)})</small>
-        </p>
-        <p>自动: <span class="val">${formatBytes(game.stats.autoPower)}</span>/s</p>
-        <p>幸运: <span class="val" style="color:#ffd700">${ (game.stats.luck * 100).toFixed(0) }%</span> 
-           折扣: <span class="val" style="color:#00e5ff">-${ (game.stats.discount * 100).toFixed(0) }%</span>
-        </p>
-    `;
-    const statsEl = document.querySelector('.stats');
-    if(statsEl) statsEl.innerHTML = statsHTML;
+    const statsKey = [
+        game.stats.clickPower,
+        game.stats.autoPower,
+        game.stats.critChance,
+        game.stats.critDamage,
+        game.stats.luck,
+        game.stats.discount
+    ].join('|');
+    if (uiCache.statsEl && uiCache.lastStatsKey !== statsKey) {
+        const statsHTML = `
+            <p>点击: <span class="val">${formatBytes(game.stats.clickPower)}</span> 
+               <small style="color:#ff003c" title="暴击率/暴击伤害">(${ (game.stats.critChance*100).toFixed(0) }% / x${game.stats.critDamage.toFixed(1)})</small>
+            </p>
+            <p>自动: <span class="val">${formatBytes(game.stats.autoPower)}</span>/s</p>
+            <p>幸运: <span class="val" style="color:#ffd700">${ (game.stats.luck * 100).toFixed(0) }%</span> 
+               折扣: <span class="val" style="color:#00e5ff">-${ (game.stats.discount * 100).toFixed(0) }%</span>
+            </p>
+        `;
+        uiCache.statsEl.innerHTML = statsHTML;
+        uiCache.lastStatsKey = statsKey;
+    }
 
     // 3. 商店按钮状态更新
     GameConfig.shopCategories.forEach(cat => {
         cat.items.forEach(item => {
             const cost = getCost(item);
-            const btn = document.getElementById(`btn-${item.id}`);
-            const lvlLabel = document.getElementById(`lvl-${item.id}`);
+            const btn = uiCache.shopBtnById.get(item.id);
+            const lvlLabel = uiCache.shopLvlById.get(item.id);
 
-            if (btn && btn.innerText !== "GET!") {
-                btn.innerText = `${formatBytes(cost)} B`;
-                if (game.bytes >= cost) btn.classList.add('can-buy');
-                else btn.classList.remove('can-buy');
+            // 成本变化时才更新文本（避免每秒把相同字符串写回 DOM）
+            const lastCost = uiCache.lastCostById.get(item.id);
+            if (btn && btn.innerText !== "GET!" && lastCost !== cost) {
+                btn.textContent = `${formatBytes(cost)} B`;
+                uiCache.lastCostById.set(item.id, cost);
             }
-            if(lvlLabel) lvlLabel.innerText = `(Lv.${game.levels[item.id]||0})`;
+
+            // 可购买状态可能随 bytes 变化：仅在变化时切换 class
+            if (btn) {
+                const canBuy = game.bytes >= cost;
+                const lastCanBuy = uiCache.lastCanBuyById.get(item.id);
+                if (lastCanBuy !== canBuy) {
+                    btn.classList.toggle('can-buy', canBuy);
+                    uiCache.lastCanBuyById.set(item.id, canBuy);
+                }
+            }
+
+            if (lvlLabel) lvlLabel.textContent = `(Lv.${game.levels[item.id] || 0})`;
         });
     });
 }
@@ -82,6 +145,9 @@ export function renderShop() {
         });
         container.appendChild(gridBox);
     });
+
+    // 商店 DOM 已重建：下次 updateUI() 重新缓存引用
+    uiCache.shopInited = false;
 }
 
 // 渲染背包和装备栏
@@ -90,8 +156,11 @@ export function renderInventory() {
     if (!grid) return;
     grid.innerHTML = '';
 
-    const bagCountEl = document.getElementById('bag-count');
-    if(bagCountEl) bagCountEl.innerText = game.inventory.length;
+    ensureUIRefs();
+    if (uiCache.bagCountEl && uiCache.lastBagCount !== game.inventory.length) {
+        uiCache.bagCountEl.textContent = String(game.inventory.length);
+        uiCache.lastBagCount = game.inventory.length;
+    }
 
     const icons = { cpu:'🧩', ram:'💾', disk:'💿', net:'📡', pwr:'🔋' };
 

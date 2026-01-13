@@ -21,6 +21,10 @@ export function findItemById(id) {
 export function showToast(msg, color) {
     const container = document.getElementById('toast-container');
     if (!container) return;
+    // 限制 toast 数量，避免长时间运行堆积
+    while (container.childElementCount > 8) {
+        container.firstElementChild?.remove();
+    }
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.style.borderLeftColor = color || '#fff';

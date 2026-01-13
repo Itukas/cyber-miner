@@ -5,8 +5,14 @@ import { renderInventory } from './ui.js'; // 确保 ui.js 里导出了 renderIn
 
 // 2. 导出函数 (必须加 export)
 
-export function saveGame() {
-    localStorage.setItem('CyberMinerSave_v3', JSON.stringify({
+let lastSaveAt = 0;
+let saveTimer = null;
+const SAVE_KEY = 'CyberMinerSave_v3';
+const SAVE_THROTTLE_MS = 500; // 防止高频 localStorage 写入卡顿
+
+function doSave() {
+    lastSaveAt = Date.now();
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
         bytes: game.bytes,
         levels: game.levels,
         inventory: game.inventory,
@@ -20,8 +26,27 @@ export function saveGame() {
     }
 }
 
+function scheduleSave() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+        saveTimer = null;
+        doSave();
+    }, SAVE_THROTTLE_MS);
+}
+
+export function saveGame() {
+    // autoSaveInterval 调用时通常间隔很大：直接存
+    // 高频用户操作（掉落/装备/购买）会反复触发：节流合并
+    const now = Date.now();
+    if (now - lastSaveAt < SAVE_THROTTLE_MS) {
+        scheduleSave();
+        return;
+    }
+    doSave();
+}
+
 export function loadGame() {
-    const save = localStorage.getItem('CyberMinerSave_v3');
+    const save = localStorage.getItem(SAVE_KEY);
     if (save) {
         const data = JSON.parse(save);
         // 恢复数据
@@ -40,7 +65,16 @@ export function loadGame() {
 
 export function resetGame() {
     if (confirm('确定要清空数据重来吗？')) {
-        localStorage.removeItem('CyberMinerSave_v3');
+        localStorage.removeItem(SAVE_KEY);
         location.reload();
     }
 }
+
+// 页面关闭时尽量落盘（避免最后一次操作刚好被节流）
+window.addEventListener('beforeunload', () => {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        doSave();
+    }
+});
