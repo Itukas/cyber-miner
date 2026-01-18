@@ -16,14 +16,14 @@ const LootConfig = {
         baseSellPrice: 50       // 基础回收价格 (普通装备卖50)
     },
 
-    // 装备底材池
+    // 装备底材池（所有固定值已转为百分比）
     equipmentBase: [
         { name: '超频芯片', slot: 'cpu', type: 'clickPct', baseVal: 0.1, desc: '点击算力 +10%' },
         { name: '量子核心', slot: 'cpu', type: 'autoPct', baseVal: 0.1, desc: '自动算力 +10%' },
-        { name: '高速缓存', slot: 'ram', type: 'clickFlat', baseVal: 10, desc: '点击算力 +10' },
-        { name: 'ECC内存', slot: 'ram', type: 'autoFlat', baseVal: 50, desc: '自动算力 +50' },
-        { name: '光纤线缆', slot: 'net', type: 'clickFlat', baseVal: 5, desc: '点击算力 +5' },
-        { name: '5G模块',   slot: 'net', type: 'autoFlat', baseVal: 20, desc: '自动算力 +20' },
+        { name: '高速缓存', slot: 'ram', type: 'clickPct', baseVal: 0.05, desc: '点击算力 +5%' },
+        { name: 'ECC内存', slot: 'ram', type: 'autoPct', baseVal: 0.08, desc: '自动算力 +8%' },
+        { name: '光纤线缆', slot: 'net', type: 'clickPct', baseVal: 0.03, desc: '点击算力 +3%' },
+        { name: '5G模块',   slot: 'net', type: 'autoPct', baseVal: 0.06, desc: '自动算力 +6%' },
         { name: '瞄准辅助', slot: 'cpu', type: 'critChance', baseVal: 0.05, desc: '暴击率 +5%' },
         { name: '爆伤模组', slot: 'cpu', type: 'critDmg', baseVal: 0.5, desc: '暴击伤害 +50%' },
         { name: '黑市会员卡', slot: 'disk', type: 'discount', baseVal: 0.02, desc: '商店价格 -2%' },

@@ -79,6 +79,16 @@ const CraftConfig = {
             output: { rarity: 'rare', multiplier: 1.0, random: true },
             cost: 1000
         },
+        { 
+            input: { rarity: 'rare', count: 5, sameType: false }, 
+            output: { rarity: 'legendary', multiplier: 1.0, random: true },
+            cost: 5000
+        },
+        { 
+            input: { rarity: 'legendary', count: 5, sameType: false }, 
+            output: { rarity: 'mythic', multiplier: 1.0, random: true },
+            cost: 20000
+        },
     ]
 };
 
@@ -232,4 +242,104 @@ const SkillTreeConfig = {
             effect: { bossRewardMultiplier: 1.5 }
         }
     ]
+};
+
+// 宝箱系统配置
+const ChestConfig = {
+    // 宝箱掉落概率（基于关卡）
+    dropChance: {
+        base: 0.001,        // 基础掉落率
+        perLevel: 0.0001,   // 每级增加的掉落率
+        bossBonus: 0.01     // BOSS战额外掉落率
+    },
+    
+    // 宝箱类型
+    types: [
+        {
+            id: 'common_chest',
+            name: '普通宝箱',
+            icon: '📦',
+            color: '#b0b0b0',
+            prob: 0.60,
+            rewards: {
+                bytes: { min: 100, max: 500, mult: 1 },
+                equipment: { chance: 0.3, count: 1 }, // 30%概率获得1件装备
+                buffs: [
+                    { type: 'clickPowerMult', value: 1.2, duration: 300000, name: '点击力×1.2', icon: '👆' },
+                    { type: 'autoPowerMult', value: 1.2, duration: 300000, name: '自动算力×1.2', icon: '⚙️' },
+                    { type: 'critChance', value: 0.05, duration: 300000, name: '暴击率+5%', icon: '💥' }
+                ]
+            }
+        },
+        {
+            id: 'rare_chest',
+            name: '精良宝箱',
+            icon: '💎',
+            color: '#00e5ff',
+            prob: 0.25,
+            rewards: {
+                bytes: { min: 500, max: 2000, mult: 1 },
+                equipment: { chance: 0.5, count: 1 }, // 50%概率获得1件装备
+                buffs: [
+                    { type: 'clickPowerMult', value: 1.5, duration: 600000, name: '点击力×1.5', icon: '👆' },
+                    { type: 'autoPowerMult', value: 1.5, duration: 600000, name: '自动算力×1.5', icon: '⚙️' },
+                    { type: 'critChance', value: 0.1, duration: 600000, name: '暴击率+10%', icon: '💥' },
+                    { type: 'bytesMultiplier', value: 1.5, duration: 600000, name: '收益×1.5', icon: '💰' }
+                ]
+            }
+        },
+        {
+            id: 'legendary_chest',
+            name: '传说宝箱',
+            icon: '⭐',
+            color: '#ffa500',
+            prob: 0.12,
+            rewards: {
+                bytes: { min: 2000, max: 10000, mult: 1 },
+                equipment: { chance: 0.7, count: 2 }, // 70%概率获得2件装备
+                buffs: [
+                    { type: 'clickPowerMult', value: 2.0, duration: 900000, name: '点击力×2.0', icon: '👆' },
+                    { type: 'autoPowerMult', value: 2.0, duration: 900000, name: '自动算力×2.0', icon: '⚙️' },
+                    { type: 'critChance', value: 0.15, duration: 900000, name: '暴击率+15%', icon: '💥' },
+                    { type: 'bytesMultiplier', value: 2.0, duration: 900000, name: '收益×2.0', icon: '💰' },
+                    { type: 'dropChance', value: 0.1, duration: 900000, name: '掉落率+10%', icon: '🎁' }
+                ]
+            }
+        },
+        {
+            id: 'mythic_chest',
+            name: '神话宝箱',
+            icon: '👑',
+            color: '#ff003c',
+            prob: 0.03,
+            rewards: {
+                bytes: { min: 10000, max: 50000, mult: 1 },
+                equipment: { chance: 1.0, count: 3 }, // 100%概率获得3件装备
+                buffs: [
+                    { type: 'clickPowerMult', value: 3.0, duration: 1800000, name: '点击力×3.0', icon: '👆' },
+                    { type: 'autoPowerMult', value: 3.0, duration: 1800000, name: '自动算力×3.0', icon: '⚙️' },
+                    { type: 'critChance', value: 0.2, duration: 1800000, name: '暴击率+20%', icon: '💥' },
+                    { type: 'bytesMultiplier', value: 3.0, duration: 1800000, name: '收益×3.0', icon: '💰' },
+                    { type: 'dropChance', value: 0.2, duration: 1800000, name: '掉落率+20%', icon: '🎁' },
+                    { type: 'allDamageMult', value: 1.5, duration: 1800000, name: '全伤害×1.5', icon: '⚔️' }
+                ]
+            }
+        }
+    ]
+};
+
+// 装备伤害加成配置（后期装备）
+const EquipmentDamageConfig = {
+    // 从多少级开始装备有伤害加成
+    startLevel: 50,
+    // 每级增加的伤害加成比例
+    damagePerLevel: 0.01,  // 1%
+    // 稀有度额外加成
+    rarityBonus: {
+        common: 0,
+        uncommon: 0.05,    // 5%
+        rare: 0.15,        // 15%
+        legendary: 0.3,    // 30%
+        mythic: 0.5        // 50%
+    }
 };

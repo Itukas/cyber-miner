@@ -47,6 +47,11 @@
             <div id="ripple-container"></div>
         </section>
 
+        <section class="buffs-section" style="background-color: var(--card-bg); border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; margin-bottom: 10px;">
+            <div class="section-title" style="font-size: 0.9rem;">当前Buff</div>
+            <div id="buffs-container" class="buffs-list"></div>
+        </section>
+
         <section class="inventory-section">
             <div class="section-title">装备槽位</div>
             <div class="equip-slots">
@@ -123,6 +128,15 @@
         <div style="height: 80px;"></div>
     </div>
 
+    <div id="view-chests" class="game-view" style="display:none">
+        <header class="shop-intro">
+            <h2>🎁 宝箱</h2>
+            <p>开启宝箱获得奖励和Buff</p>
+        </header>
+        <div id="chests-container" class="chests-list"></div>
+        <div style="height: 80px;"></div>
+    </div>
+
 </div>
 
 <nav class="bottom-nav">
@@ -149,6 +163,10 @@
     <button class="nav-item" onclick="switchTab('skills')">
         <span class="nav-icon">🌳</span>
         <span>技能</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('chests')">
+        <span class="nav-icon">🎁</span>
+        <span>宝箱</span>
     </button>
 </nav>
 

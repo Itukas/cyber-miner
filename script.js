@@ -72,7 +72,10 @@ let game = {
     },
     skills: {},
     activeEvents: [],
-    lastEventTime: 0
+    lastEventTime: 0,
+    // 宝箱系统
+    chests: [],
+    activeBuffs: []
 };
 
 // --- 3. 战斗系统逻辑 ---
@@ -152,7 +155,14 @@ function onEnemyDeath() {
     // 更新Bytes任务进度
     updateBytesQuestProgress(reward);
 
+    // 掉落装备（每次击杀都有概率掉落）
     tryDrop('click');
+    
+    // BOSS必掉装备，普通怪物也有较高概率
+    const dropChance = game.combat.isBoss ? 1.0 : 0.3;
+    if (Math.random() < dropChance) {
+        generateLoot('click');
+    }
 
     game.combat.level++;
     updateQuestProgress('level', 1);
@@ -293,26 +303,51 @@ function recalcPower() {
         });
     });
 
-    let clickMult = 1, autoMult = 1, clickFlat = 0, autoFlat = 0;
+    let clickMult = 1, autoMult = 1;
+    let damageBonus = 1; // 装备伤害加成
 
     for (let slot in game.equipped) {
         const item = game.equipped[slot];
         if (item) {
             switch(item.type) {
-                case 'clickFlat': clickFlat += item.value; break;
-                case 'autoFlat':  autoFlat += item.value; break;
+                // 固定值类型已废弃，转换为百分比
+                case 'clickFlat': 
                 case 'clickPct':  clickMult += item.value; break;
+                case 'autoFlat':  
                 case 'autoPct':   autoMult += item.value; break;
                 case 'critChance': game.stats.critChance += item.value; break;
                 case 'critDmg':    game.stats.critDamage += item.value; break;
                 case 'discount':   game.stats.discount += item.value; break;
                 case 'luck':       game.stats.luck += item.value; break;
             }
+            
+            // 装备伤害加成（后期功能）
+            if (EquipmentDamageConfig && game.combat.level >= EquipmentDamageConfig.startLevel) {
+                const levelBonus = (game.combat.level - EquipmentDamageConfig.startLevel) * EquipmentDamageConfig.damagePerLevel;
+                const rarityBonus = EquipmentDamageConfig.rarityBonus[item.rarity] || 0;
+                damageBonus += levelBonus + rarityBonus;
+            }
         }
     }
+    
+    // 应用Buff效果（只应用永久性的，临时倍率buff在点击/自动时实时应用）
+    if (!game.activeBuffs) game.activeBuffs = [];
+    const now = Date.now();
+    game.activeBuffs = game.activeBuffs.filter(b => b && b.endTime > now);
+    
+    // 只应用非倍率类的buff（如暴击率）
+    game.activeBuffs.forEach(buff => {
+        switch(buff.type) {
+            case 'critChance':
+                game.stats.critChance += buff.value;
+                break;
+            // clickPowerMult, autoPowerMult, allDamageMult, bytesMultiplier 在点击/自动时实时应用
+        }
+    });
 
-    game.stats.clickPower = Math.floor((baseClick + clickFlat) * clickMult);
-    game.stats.autoPower = Math.floor((baseAuto + autoFlat) * autoMult);
+    // 计算基础算力（不包含临时倍率buff，倍率buff在点击/自动时实时应用）
+    game.stats.clickPower = Math.floor(baseClick * clickMult * damageBonus);
+    game.stats.autoPower = Math.floor(baseAuto * autoMult * damageBonus);
 
     updateCoreVisuals();
 }
@@ -393,6 +428,323 @@ function generateLoot(source) {
 
 function tryDrop(type) {
     generateLoot(type);
+    tryDropChest(type);
+}
+
+// 宝箱掉落系统
+function tryDropChest(source) {
+    if (!ChestConfig) return;
+    
+    // 计算掉落概率
+    let chance = ChestConfig.dropChance.base + (game.combat.level - 1) * ChestConfig.dropChance.perLevel;
+    if (game.combat.isBoss) {
+        chance += ChestConfig.dropChance.bossBonus;
+    }
+    
+    // 应用幸运值
+    chance *= game.stats.luck;
+    
+    if (Math.random() > chance) return;
+    
+    // 根据概率选择宝箱类型
+    const rand = Math.random();
+    let accum = 0;
+    let chestType = null;
+    
+    for (let chest of ChestConfig.types) {
+        accum += chest.prob;
+        if (rand <= accum) {
+            chestType = chest;
+            break;
+        }
+    }
+    
+    if (!chestType) chestType = ChestConfig.types[0];
+    
+    // 创建宝箱
+    const chest = {
+        id: Date.now() + Math.random(),
+        type: chestType.id,
+        name: chestType.name,
+        icon: chestType.icon,
+        color: chestType.color,
+        rewards: chestType.rewards,
+        createdAt: Date.now()
+    };
+    
+    if (!game.chests) game.chests = [];
+    game.chests.push(chest);
+    showToast(`🎁 获得: ${chestType.icon} ${chestType.name}！`, chestType.color);
+    saveGame();
+    renderChests();
+}
+
+// 开启宝箱
+window.openChest = function(chestId) {
+    if (!game.chests) game.chests = [];
+    const chest = game.chests.find(c => c.id === chestId);
+    if (!chest) return;
+    
+    const chestType = ChestConfig.types.find(t => t.id === chest.type);
+    if (!chestType) return;
+    
+    // 获得Bytes奖励
+    const bytesReward = Math.floor(
+        (Math.random() * (chestType.rewards.bytes.max - chestType.rewards.bytes.min) + chestType.rewards.bytes.min) 
+        * chestType.rewards.bytes.mult
+    );
+    game.bytes += bytesReward;
+    game.stats.totalBytesEarned += bytesReward;
+    
+    // 获得装备奖励
+    let equipmentRewards = [];
+    if (chestType.rewards.equipment && Math.random() < chestType.rewards.equipment.chance) {
+        const equipmentCount = chestType.rewards.equipment.count || 1;
+        for (let i = 0; i < equipmentCount; i++) {
+            // 根据宝箱品质决定装备稀有度
+            const rarityProbs = {
+                'common_chest': { common: 0.7, uncommon: 0.3 },
+                'rare_chest': { uncommon: 0.5, rare: 0.5 },
+                'legendary_chest': { rare: 0.4, legendary: 0.5, mythic: 0.1 },
+                'mythic_chest': { legendary: 0.3, mythic: 0.7 }
+            };
+            
+            const probs = rarityProbs[chestType.id] || rarityProbs['common_chest'];
+            const rand = Math.random();
+            let rarityKey = 'common';
+            let accum = 0;
+            for (let key in probs) {
+                accum += probs[key];
+                if (rand <= accum) {
+                    rarityKey = key;
+                    break;
+                }
+            }
+            
+            const rarity = LootConfig.rarity[rarityKey];
+            const baseItem = LootConfig.equipmentBase[Math.floor(Math.random() * LootConfig.equipmentBase.length)];
+            const existingItem = game.inventory.find(i => i.baseId === baseItem.name && i.rarity === rarityKey);
+            
+            if (existingItem) {
+                existingItem.count++;
+                equipmentRewards.push({ item: existingItem, isNew: false });
+            } else {
+                const maxInv = LootConfig.settings.maxInventory + (game.skills && game.skills['skill_inventory'] ? game.skills['skill_inventory'] * 20 : 0);
+                if (game.inventory.length < maxInv) {
+                    const newItem = {
+                        uid: Date.now() + Math.random() + i,
+                        baseId: baseItem.name,
+                        name: baseItem.name,
+                        slot: baseItem.slot,
+                        type: baseItem.type,
+                        rarity: rarityKey,
+                        value: baseItem.baseVal * rarity.multiplier,
+                        desc: baseItem.desc,
+                        count: 1
+                    };
+                    game.inventory.push(newItem);
+                    equipmentRewards.push({ item: newItem, isNew: true });
+                }
+            }
+        }
+    }
+    
+    // 随机获得1-3个buff
+    const buffCount = Math.min(3, Math.max(1, Math.floor(Math.random() * 3) + 1));
+    const availableBuffs = [...chestType.rewards.buffs];
+    const selectedBuffs = [];
+    
+    for (let i = 0; i < buffCount && availableBuffs.length > 0; i++) {
+        const buffIndex = Math.floor(Math.random() * availableBuffs.length);
+        selectedBuffs.push(availableBuffs[buffIndex]);
+        availableBuffs.splice(buffIndex, 1);
+    }
+    
+    // 应用buff
+    selectedBuffs.forEach(buff => {
+        activateBuff(buff);
+    });
+    
+    // 移除宝箱
+    game.chests = game.chests.filter(c => c.id !== chestId);
+    
+    // 显示奖励信息
+    let rewardText = `✨ 开启${chestType.name}！获得 ${formatBytes(bytesReward)}`;
+    if (equipmentRewards.length > 0) {
+        rewardText += ` 和 ${equipmentRewards.length}件装备`;
+    }
+    if (selectedBuffs.length > 0) {
+        rewardText += ` 和 ${selectedBuffs.length}个Buff`;
+    }
+    showToast(rewardText, chestType.color);
+    spawnFloatingText(bytesReward, 'money');
+    
+    // 显示装备获得提示
+    equipmentRewards.forEach(({ item, isNew }) => {
+        const rarityCfg = LootConfig.rarity[item.rarity];
+        if (isNew) {
+            showToast(`获得: [${rarityCfg.name}] ${item.name}`, rarityCfg.color);
+        }
+    });
+    
+    saveGame();
+    updateUI();
+    renderChests();
+};
+
+// 激活Buff
+function activateBuff(buff) {
+    if (!game.activeBuffs) game.activeBuffs = [];
+    const existingBuff = game.activeBuffs.find(b => b && b.type === buff.type);
+    
+    if (existingBuff) {
+        // 如果已有相同类型的buff，延长持续时间或叠加效果
+        existingBuff.endTime = Math.max(existingBuff.endTime, Date.now() + buff.duration);
+        if (buff.type === 'bytesMultiplier' || buff.type === 'allDamageMult') {
+            existingBuff.value = Math.max(existingBuff.value, buff.value);
+        } else if (buff.type === 'clickPowerMult' || buff.type === 'autoPowerMult') {
+            // 倍率buff取最大值
+            existingBuff.value = Math.max(existingBuff.value, buff.value);
+        } else {
+            existingBuff.value += buff.value;
+        }
+    } else {
+        // 添加新buff
+        game.activeBuffs.push({
+            type: buff.type,
+            value: buff.value,
+            name: buff.name,
+            icon: buff.icon,
+            endTime: Date.now() + buff.duration
+        });
+    }
+    
+    // 设置定时器移除buff
+    setTimeout(() => {
+        removeBuff(buff.type);
+    }, buff.duration);
+}
+
+// 移除Buff
+function removeBuff(buffType) {
+    game.activeBuffs = game.activeBuffs.filter(b => b.type !== buffType);
+    recalcPower();
+    renderBuffs();
+}
+
+// 渲染宝箱列表
+function renderChests() {
+    const container = document.getElementById('chests-container');
+    if (!container) return;
+    
+    if (!game.chests) game.chests = [];
+    
+    container.innerHTML = '';
+    
+    if (game.chests.length === 0) {
+        container.innerHTML = '<div style="text-align:center; color:#888; padding:20px;">暂无宝箱</div>';
+        return;
+    }
+    
+    game.chests.forEach(chest => {
+        const div = document.createElement('div');
+        div.className = 'chest-item card-style';
+        div.style.borderColor = chest.color;
+        
+        div.innerHTML = `
+            <div class="chest-header">
+                <span class="chest-icon" style="font-size:2rem;">${chest.icon}</span>
+                <div class="chest-info">
+                    <h3 style="color:${chest.color}">${chest.name}</h3>
+                    <p style="color:#888; font-size:0.8rem;">点击开启获得奖励和Buff</p>
+                </div>
+            </div>
+            <button class="buy-btn can-buy" onclick="openChest(${chest.id})" style="margin-top:10px;">
+                开启宝箱
+            </button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+// 渲染Buff列表
+function renderBuffs() {
+    const container = document.getElementById('buffs-container');
+    if (!container) return;
+    
+    if (!game.activeBuffs) game.activeBuffs = [];
+    
+    container.innerHTML = '';
+    
+    // 清理过期的buff
+    const now = Date.now();
+    game.activeBuffs = game.activeBuffs.filter(b => b && b.endTime > now);
+    
+    if (game.activeBuffs.length === 0) {
+        container.innerHTML = '<div style="text-align:center; color:#888; padding:10px;">暂无Buff</div>';
+        return;
+    }
+    
+    game.activeBuffs.forEach((buff, index) => {
+        const remaining = Math.max(0, buff.endTime - now);
+        const minutes = Math.floor(remaining / 60000);
+        const seconds = Math.floor((remaining % 60000) / 1000);
+        
+        const div = document.createElement('div');
+        div.className = 'buff-item';
+        div.id = `buff-item-${index}`;
+        
+        div.innerHTML = `
+            <span class="buff-icon">${buff.icon}</span>
+            <div class="buff-info">
+                <div class="buff-name">${buff.name}</div>
+                <div class="buff-time" id="buff-time-${index}">${minutes}:${seconds.toString().padStart(2, '0')}</div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+// 实时更新Buff倒计时
+function updateBuffsTimer() {
+    if (!game.activeBuffs) return;
+    
+    const now = Date.now();
+    const beforeCount = game.activeBuffs.length;
+    game.activeBuffs = game.activeBuffs.filter(b => b && b.endTime > now);
+    const afterCount = game.activeBuffs.length;
+    
+    // 如果有buff过期，重新渲染整个列表
+    if (beforeCount !== afterCount) {
+        renderBuffs();
+        recalcPower();
+        updateUI();
+        return;
+    }
+    
+    // 更新每个buff的倒计时
+    game.activeBuffs.forEach((buff, index) => {
+        const timeEl = document.getElementById(`buff-time-${index}`);
+        if (!timeEl) return;
+        
+        const remaining = Math.max(0, buff.endTime - now);
+        const minutes = Math.floor(remaining / 60000);
+        const seconds = Math.floor((remaining % 60000) / 1000);
+        
+        timeEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        
+        // 如果剩余时间少于10秒，改变颜色提示
+        if (remaining < 10000) {
+            timeEl.style.color = '#ff4d4d';
+            timeEl.style.fontWeight = 'bold';
+        } else if (remaining < 60000) {
+            timeEl.style.color = '#ffa500';
+            timeEl.style.fontWeight = 'normal';
+        } else {
+            timeEl.style.color = '#8b949e';
+            timeEl.style.fontWeight = 'normal';
+        }
+    });
 }
 
 function getSellPrice(item) {
@@ -694,19 +1046,24 @@ function hideTooltip() {
 
 function getStatName(type) {
     const map = {
-        clickFlat: '点击算力', autoFlat: '自动算力', clickPct: '点击加成', autoPct: '自动加成',
+        clickFlat: '点击加成', autoFlat: '自动加成', clickPct: '点击加成', autoPct: '自动加成',
         critChance: '暴击率', critDmg: '暴击伤害', discount: '商店折扣', luck: '幸运值'
     };
     return map[type] || '属性';
 }
 
 function formatStat(type, value) {
-    if (isPct(type)) return `+${(value * 100).toFixed(1)}%`;
+    // 判断是否为百分比类型
+    if (isPct(type)) {
+        return `+${(value * 100).toFixed(1)}%`;
+    }
+    // 固定值类型
     return `+${Math.floor(value)}`;
 }
 
 function isPct(type) {
-    return type.includes('Pct') || type.includes('Chance') || type.includes('discount') || type.includes('luck');
+    // 百分比类型：Pct（百分比加成）, Chance（概率）, Dmg（伤害倍率）, discount（折扣）, luck（幸运值）
+    return type.includes('Pct') || type.includes('Chance') || type.includes('Dmg') || type.includes('discount') || type.includes('luck');
 }
 
 // --- 8. 渲染 (UI Render) ---
@@ -865,7 +1222,23 @@ function handleClick() {
     const bytesMult = getActiveEventMultiplier('bytesMultiplier');
     const clickMult = getActiveEventMultiplier('clickPowerMultiplier');
     
-    let damage = game.stats.clickPower * clickMult;
+    // 应用Buff中的bytesMultiplier和点击倍率
+    if (!game.activeBuffs) game.activeBuffs = [];
+    const now = Date.now();
+    game.activeBuffs = game.activeBuffs.filter(b => b && b.endTime > now);
+    
+    const buffBytesMult = game.activeBuffs.find(b => b && b.type === 'bytesMultiplier');
+    const totalBytesMult = bytesMult * (buffBytesMult ? buffBytesMult.value : 1);
+    
+    // 应用点击倍率buff
+    let clickBuffMult = 1;
+    game.activeBuffs.forEach(buff => {
+        if (buff.type === 'clickPowerMult' || buff.type === 'allDamageMult') {
+            clickBuffMult *= buff.value;
+        }
+    });
+    
+    let damage = game.stats.clickPower * clickMult * clickBuffMult;
     let isCrit = false;
 
     if (Math.random() < game.stats.critChance) {
@@ -876,7 +1249,7 @@ function handleClick() {
 
     // 统计
     game.stats.totalClicks++;
-    const bytesEarned = damage * bytesMult;
+    const bytesEarned = damage * totalBytesMult;
     game.bytes += bytesEarned;
     game.stats.totalBytesEarned += bytesEarned;
     
@@ -927,7 +1300,9 @@ function saveGame() {
         achievements: game.achievements,
         dailyQuests: game.dailyQuests,
         skills: game.skills,
-        lastEventTime: game.lastEventTime
+        lastEventTime: game.lastEventTime,
+        chests: game.chests,
+        activeBuffs: game.activeBuffs
     }));
     const status = document.getElementById('save-status');
     if (status) {
@@ -973,6 +1348,22 @@ function loadGame() {
                 game.skills = data.skills;
             }
             game.lastEventTime = data.lastEventTime || 0;
+            if (data.chests) {
+                game.chests = data.chests;
+            }
+            if (data.activeBuffs) {
+                // 恢复buff，但需要重新计算结束时间
+                game.activeBuffs = data.activeBuffs.map(buff => {
+                    const remaining = buff.endTime - Date.now();
+                    if (remaining > 0) {
+                        return {
+                            ...buff,
+                            endTime: Date.now() + remaining
+                        };
+                    }
+                    return null;
+                }).filter(b => b !== null);
+            }
         } catch (e) {
             console.error('加载存档失败:', e);
         }
@@ -983,6 +1374,8 @@ function loadGame() {
     
     recalcPower();
     renderInventory();
+    renderChests();
+    renderBuffs();
 
     // 初始化怪物
     spawnEnemy();
@@ -995,11 +1388,93 @@ window.resetGame = function() {
     }
 };
 
+// 转换背包中已有的固定值装备为百分比
+function convertFlatToPct() {
+    if (!game.inventory) return;
+    
+    let converted = 0;
+    game.inventory.forEach(item => {
+        if (item.type === 'clickFlat' || item.type === 'autoFlat') {
+            // 找到对应的基础装备配置
+            const baseItem = LootConfig.equipmentBase.find(b => b.name === item.baseId || b.name === item.name);
+            if (baseItem) {
+                // 如果基础装备已经是百分比类型，转换当前装备
+                if (baseItem.type === 'clickPct' || baseItem.type === 'autoPct') {
+                    // 计算原始固定值对应的百分比（假设基础算力为100）
+                    // 固定值10 -> 百分比0.1 (10%)
+                    // 固定值50 -> 百分比0.5 (50%)
+                    // 但更合理的是直接使用基础装备的baseVal和稀有度倍数
+                    const rarityCfg = LootConfig.rarity[item.rarity];
+                    const newValue = baseItem.baseVal * rarityCfg.multiplier;
+                    
+                    item.type = baseItem.type;
+                    item.value = newValue;
+                    item.desc = baseItem.desc;
+                    converted++;
+                }
+            } else {
+                // 如果找不到基础装备，根据固定值估算百分比
+                // 假设基础算力为100，固定值10 = 10% = 0.1
+                if (item.type === 'clickFlat') {
+                    item.type = 'clickPct';
+                    item.value = item.value / 100; // 转换为百分比
+                    item.desc = item.desc.replace('+', '+').replace(/\d+/, (item.value * 100).toFixed(0) + '%');
+                } else if (item.type === 'autoFlat') {
+                    item.type = 'autoPct';
+                    item.value = item.value / 100; // 转换为百分比
+                    item.desc = item.desc.replace('+', '+').replace(/\d+/, (item.value * 100).toFixed(0) + '%');
+                }
+                converted++;
+            }
+        }
+    });
+    
+    // 同样转换已装备的物品
+    for (let slot in game.equipped) {
+        const item = game.equipped[slot];
+        if (item && (item.type === 'clickFlat' || item.type === 'autoFlat')) {
+            const baseItem = LootConfig.equipmentBase.find(b => b.name === item.baseId || b.name === item.name);
+            if (baseItem) {
+                if (baseItem.type === 'clickPct' || baseItem.type === 'autoPct') {
+                    const rarityCfg = LootConfig.rarity[item.rarity];
+                    const newValue = baseItem.baseVal * rarityCfg.multiplier;
+                    
+                    item.type = baseItem.type;
+                    item.value = newValue;
+                    item.desc = baseItem.desc;
+                    converted++;
+                }
+            } else {
+                if (item.type === 'clickFlat') {
+                    item.type = 'clickPct';
+                    item.value = item.value / 100;
+                    item.desc = item.desc.replace('+', '+').replace(/\d+/, (item.value * 100).toFixed(0) + '%');
+                } else if (item.type === 'autoFlat') {
+                    item.type = 'autoPct';
+                    item.value = item.value / 100;
+                    item.desc = item.desc.replace('+', '+').replace(/\d+/, (item.value * 100).toFixed(0) + '%');
+                }
+                converted++;
+            }
+        }
+    }
+    
+    if (converted > 0) {
+        console.log(`已转换 ${converted} 件固定值装备为百分比`);
+        recalcPower();
+        saveGame();
+    }
+}
+
 function init() {
     console.log("游戏初始化...");
 
     renderShop();
     loadGame();
+    
+    // 转换已有的固定值装备为百分比
+    convertFlatToPct();
+    
     updateUI();
     
     // 初始化新功能界面
@@ -1008,6 +1483,8 @@ function init() {
     renderQuests();
     renderCraft();
     renderSkills();
+    renderChests();
+    renderBuffs();
 
     // 自动挂机循环
     setInterval(() => {
@@ -1016,7 +1493,23 @@ function init() {
             const bytesMult = getActiveEventMultiplier('bytesMultiplier');
             const autoMult = getActiveEventMultiplier('autoPowerMultiplier');
             
-            let autoDamage = game.stats.autoPower * autoMult;
+            // 应用Buff中的bytesMultiplier和自动倍率
+            if (!game.activeBuffs) game.activeBuffs = [];
+            const now = Date.now();
+            game.activeBuffs = game.activeBuffs.filter(b => b && b.endTime > now);
+            
+            const buffBytesMult = game.activeBuffs.find(b => b && b.type === 'bytesMultiplier');
+            const totalBytesMult = bytesMult * (buffBytesMult ? buffBytesMult.value : 1);
+            
+            // 应用自动倍率buff
+            let autoBuffMult = 1;
+            game.activeBuffs.forEach(buff => {
+                if (buff.type === 'autoPowerMult' || buff.type === 'allDamageMult') {
+                    autoBuffMult *= buff.value;
+                }
+            });
+            
+            let autoDamage = game.stats.autoPower * autoMult * autoBuffMult;
             
             // 自动暴击
             if (game.skills && game.skills['skill_auto_crit'] && Math.random() < 0.1) {
@@ -1024,7 +1517,7 @@ function init() {
             }
 
             // --- 修改：挂机同时产出钱 ---
-            const bytesEarned = autoDamage * bytesMult;
+            const bytesEarned = autoDamage * totalBytesMult;
             game.bytes += bytesEarned;
             game.stats.totalBytesEarned += bytesEarned;
             
@@ -1063,6 +1556,11 @@ function init() {
     }, 1000);
 
     setInterval(saveGame, GameConfig.settings.autoSaveInterval);
+    
+    // Buff倒计时实时更新（每秒更新一次）
+    setInterval(() => {
+        updateBuffsTimer();
+    }, 1000);
 
     // 绑定核心点击
     if (visualEls.core) {
@@ -1629,22 +2127,42 @@ window.upgradeSkill = function(skillId) {
 
 // 标签页切换
 window.switchTab = function(tabName) {
-    document.getElementById('view-mining').style.display = 'none';
-    document.getElementById('view-shop').style.display = 'none';
-    document.getElementById('view-achievements').style.display = 'none';
-    document.getElementById('view-quests').style.display = 'none';
-    document.getElementById('view-craft').style.display = 'none';
-    document.getElementById('view-skills').style.display = 'none';
+    // 隐藏所有视图
+    const views = ['view-mining', 'view-shop', 'view-achievements', 'view-quests', 'view-craft', 'view-skills', 'view-chests'];
+    views.forEach(viewId => {
+        const view = document.getElementById(viewId);
+        if (view) {
+            view.style.display = 'none';
+        }
+    });
 
-    document.getElementById(`view-${tabName}`).style.display = 'block';
+    // 显示目标视图
+    const targetView = document.getElementById(`view-${tabName}`);
+    if (targetView) {
+        targetView.style.display = 'block';
+    } else {
+        console.error(`视图 view-${tabName} 不存在`);
+        // 如果目标视图不存在，显示挖掘界面
+        const miningView = document.getElementById('view-mining');
+        if (miningView) {
+            miningView.style.display = 'block';
+        }
+        return;
+    }
 
+    // 更新导航按钮状态
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => item.classList.remove('active'));
 
-    const tabMap = { mining: 0, shop: 1, achievements: 2, quests: 3, craft: 4, skills: 5 };
-    if (tabMap[tabName] !== undefined) navItems[tabMap[tabName]].classList.add('active');
+    const tabMap = { mining: 0, shop: 1, achievements: 2, quests: 3, craft: 4, skills: 5, chests: 6 };
+    if (tabMap[tabName] !== undefined && navItems[tabMap[tabName]]) {
+        navItems[tabMap[tabName]].classList.add('active');
+    }
 
-    if (tabName === 'shop') {
+    // 根据标签页执行相应操作
+    if (tabName === 'mining') {
+        updateUI();
+    } else if (tabName === 'shop') {
         updateUI();
     } else if (tabName === 'achievements') {
         renderAchievements();
@@ -1655,6 +2173,8 @@ window.switchTab = function(tabName) {
     } else if (tabName === 'skills') {
         updateUI(); // 先更新UI确保Bytes是最新的
         renderSkills();
+    } else if (tabName === 'chests') {
+        renderChests();
     }
 };
 
