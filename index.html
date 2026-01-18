@@ -58,7 +58,7 @@
             </div>
 
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #30363d; padding-bottom:5px;">
-                <div class="section-title" style="border:none; margin:0;">背包 (<span id="bag-count">0</span>/200)</div>
+                <div class="section-title" style="border:none; margin:0;">背包 (<span id="bag-count">0/200</span>)</div>
                 <button id="btn-multi-sell" class="buy-btn small-btn" onclick="toggleSellMode()">多选出售</button>
             </div>
 
@@ -87,6 +87,42 @@
         <div style="height: 80px;"></div>
     </div>
 
+    <div id="view-achievements" class="game-view" style="display:none">
+        <header class="shop-intro">
+            <h2>🏆 成就系统</h2>
+            <p>完成挑战，获得丰厚奖励</p>
+        </header>
+        <div id="achievements-container" class="achievements-grid"></div>
+        <div style="height: 80px;"></div>
+    </div>
+
+    <div id="view-quests" class="game-view" style="display:none">
+        <header class="shop-intro">
+            <h2>📋 每日任务</h2>
+            <p>完成每日任务，获得额外奖励</p>
+        </header>
+        <div id="quests-container" class="quests-list"></div>
+        <div style="height: 80px;"></div>
+    </div>
+
+    <div id="view-craft" class="game-view" style="display:none">
+        <header class="shop-intro">
+            <h2>🔨 装备合成</h2>
+            <p>将低级装备合成为高级装备</p>
+        </header>
+        <div id="craft-container" class="craft-area"></div>
+        <div style="height: 80px;"></div>
+    </div>
+
+    <div id="view-skills" class="game-view" style="display:none">
+        <header class="shop-intro">
+            <h2>🌳 技能树</h2>
+            <p>永久性升级，提升你的能力</p>
+        </header>
+        <div id="skills-container" class="skills-tree"></div>
+        <div style="height: 80px;"></div>
+    </div>
+
 </div>
 
 <nav class="bottom-nav">
@@ -98,26 +134,31 @@
         <span class="nav-icon">🛒</span>
         <span>商店</span>
     </button>
-    <button class="nav-item" onclick="resetGame()">
-        <span class="nav-icon">⚙️</span>
-        <span>重置</span>
+    <button class="nav-item" onclick="switchTab('achievements')">
+        <span class="nav-icon">🏆</span>
+        <span>成就</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('quests')">
+        <span class="nav-icon">📋</span>
+        <span>任务</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('craft')">
+        <span class="nav-icon">🔨</span>
+        <span>合成</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('skills')">
+        <span class="nav-icon">🌳</span>
+        <span>技能</span>
     </button>
 </nav>
 
 <div id="game-tooltip" class="tooltip-container" style="display: none;"></div>
+<div id="toast-container"></div>
+<div id="event-notification" class="event-notification" style="display: none;"></div>
 
 <script src="config.js"></script>
 <script src="loot-config.js"></script>
+<script src="features-config.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
-<!--<!DOCTYPE html>-->
-<!--<html lang="zh-CN">-->
-<!--<head>-->
-<!--    <link rel="stylesheet" href="css/style.css">-->
-<!--    <title>idle</title>-->
-<!--</head>-->
-<!--<body>-->
-<!--<script type="module" src="js/main.js"></script>-->
-<!--</body>-->
-<!--</html>-->

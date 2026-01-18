@@ -716,14 +716,17 @@ body {
     bottom: 0;
     left: 0;
     width: 100%;
-    height: 60px;
+    min-height: 60px;
     background: #161b22;
     border-top: 1px solid var(--border-color);
     display: flex;
-    justify-content: space-around;
+    flex-wrap: wrap;
+    justify-content: space-evenly;
     align-items: center;
     z-index: 100;
-    padding-bottom: env(safe-area-inset-bottom); /* 适配 iPhone X+ */
+    padding: 5px 0;
+    padding-bottom: calc(5px + env(safe-area-inset-bottom)); /* 适配 iPhone X+ */
+    gap: 2px;
 }
 
 .nav-item {
@@ -733,15 +736,23 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    font-size: 0.7rem;
+    justify-content: center;
+    font-size: 0.65rem;
     cursor: pointer;
     transition: all 0.2s;
-    width: 100%;
-    height: 100%;
-    justify-content: center;
+    flex: 1;
+    min-width: 60px;
+    max-width: 120px;
+    height: 55px;
+    padding: 5px;
+    box-sizing: border-box;
 }
 
-.nav-item .nav-icon { font-size: 1.4rem; margin-bottom: 3px; }
+.nav-item .nav-icon { 
+    font-size: 1.2rem; 
+    margin-bottom: 2px; 
+    line-height: 1;
+}
 
 .nav-item.active {
     color: var(--accent-color);
@@ -937,4 +948,342 @@ body {
 @keyframes bossPulse {
     from { transform: scale(1); box-shadow: 0 0 20px #ff003c; }
     to { transform: scale(1.1); box-shadow: 0 0 50px #ff003c; }
+}
+
+/* ==========================================
+   新功能样式
+   ========================================== */
+
+/* 成就系统 */
+.achievements-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+    padding: 10px;
+}
+
+.achievement-item {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.achievement-item.unlocked {
+    border-color: #ffd700;
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), var(--card-bg));
+}
+
+.achievement-icon {
+    font-size: 2rem;
+}
+
+.achievement-info {
+    flex: 1;
+}
+
+.achievement-info h3 {
+    margin: 0 0 5px 0;
+    color: #fff;
+    font-size: 1rem;
+}
+
+.achievement-info p {
+    margin: 0 0 5px 0;
+    color: #8b949e;
+    font-size: 0.8rem;
+}
+
+.achievement-reward {
+    color: #ffd700;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+
+.achievement-check {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    color: #ffd700;
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+/* 每日任务 */
+.quests-list {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.quest-item {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    transition: all 0.2s;
+}
+
+.quest-item.completed {
+    border-color: #00ff41;
+    background: linear-gradient(135deg, rgba(0, 255, 65, 0.1), var(--card-bg));
+}
+
+.quest-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.quest-icon {
+    font-size: 2rem;
+}
+
+.quest-info {
+    flex: 1;
+}
+
+.quest-info h3 {
+    margin: 0 0 5px 0;
+    color: #fff;
+    font-size: 1rem;
+}
+
+.quest-info p {
+    margin: 0;
+    color: #8b949e;
+    font-size: 0.8rem;
+}
+
+.quest-reward {
+    color: #00e5ff;
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+.quest-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 8px;
+    background-color: #0d1117;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00ff41, #00e5ff);
+    transition: width 0.3s;
+}
+
+.progress-text {
+    color: #8b949e;
+    font-size: 0.8rem;
+    min-width: 80px;
+    text-align: right;
+}
+
+/* 装备合成 */
+.craft-area {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.craft-recipe {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.craft-info {
+    flex: 1;
+    text-align: center;
+}
+
+.craft-info h3 {
+    margin: 8px 0;
+    color: #fff;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.craft-info p {
+    margin: 8px 0;
+    color: #8b949e;
+    font-size: 0.9rem;
+}
+
+.craft-recipe .buy-btn {
+    width: 100%;
+    margin-top: auto;
+}
+
+/* 技能树 */
+.skills-tree {
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.skill-item {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+    transition: all 0.2s;
+}
+
+.skill-item.locked {
+    opacity: 0.5;
+    border-color: #444;
+}
+
+.skill-item.maxed {
+    border-color: #ffd700;
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), var(--card-bg));
+}
+
+.skill-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.skill-icon {
+    font-size: 2rem;
+}
+
+.skill-info {
+    flex: 1;
+}
+
+.skill-info h3 {
+    margin: 0 0 5px 0;
+    color: #fff;
+    font-size: 1rem;
+}
+
+.skill-info p {
+    margin: 0;
+    color: #8b949e;
+    font-size: 0.8rem;
+}
+
+.skill-cost {
+    margin-top: 10px;
+}
+
+/* 事件通知 */
+.event-notification {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.95);
+    border: 2px solid #00ff41;
+    border-radius: 8px;
+    padding: 15px 20px;
+    min-width: 300px;
+    max-width: 90%;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateX(-50%) translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+.event-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.event-icon {
+    font-size: 2.5rem;
+}
+
+.event-title {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #fff;
+    margin-bottom: 5px;
+}
+
+.event-desc {
+    font-size: 0.9rem;
+    color: #8b949e;
+}
+
+/* 底部导航栏调整（6个按钮）- 已合并到上面 */
+
+/* 响应式调整 */
+@media (max-width: 600px) {
+    .bottom-nav {
+        min-height: 60px;
+        padding: 3px 0;
+        padding-bottom: calc(3px + env(safe-area-inset-bottom));
+    }
+    
+    .nav-item {
+        font-size: 0.6rem;
+        min-width: 50px;
+        max-width: 80px;
+        height: 50px;
+        padding: 3px;
+    }
+    
+    .nav-item .nav-icon {
+        font-size: 1rem;
+        margin-bottom: 1px;
+    }
+    
+    .achievements-grid,
+    .skills-tree {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 宽屏优化：确保所有按钮都能显示 */
+@media (min-width: 800px) {
+    .bottom-nav {
+        justify-content: center;
+        gap: 5px;
+    }
+    
+    .nav-item {
+        max-width: 100px;
+        font-size: 0.7rem;
+    }
+    
+    .nav-item .nav-icon {
+        font-size: 1.3rem;
+    }
 }

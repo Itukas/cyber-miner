@@ -42,7 +42,12 @@ let game = {
     equipped: { cpu: null, ram: null, disk: null, net: null, pwr: null },
     stats: {
         clickPower: 1, autoPower: 0,
-        critChance: 0, critDamage: 1.5, discount: 0, luck: 1
+        critChance: 0, critDamage: 1.5, discount: 0, luck: 1,
+        // 新增统计
+        totalClicks: 0,
+        totalBytesEarned: 0,
+        bossKills: 0,
+        totalCrits: 0
     },
     flags: {
         sellMode: false, selectedIndices: []
@@ -54,7 +59,20 @@ let game = {
         isBoss: false,
         bossTimer: 0,
         bossInterval: null
-    }
+    },
+    // 新功能状态
+    achievements: {
+        unlocked: [],
+        progress: {}
+    },
+    dailyQuests: {
+        date: new Date().toDateString(),
+        quests: [],
+        progress: {}
+    },
+    skills: {},
+    activeEvents: [],
+    lastEventTime: 0
 };
 
 // --- 3. 战斗系统逻辑 ---
@@ -112,24 +130,39 @@ function damageEnemy(amount) {
 function onEnemyDeath() {
     // 击杀额外奖励 (作为 Loot 包)
     let reward = CombatConfig.baseReward * Math.pow(CombatConfig.rewardGrowth, game.combat.level - 1);
+    
+    // 应用技能效果
+    const bossMult = game.skills && game.skills['skill_boss_reward'] ? 1.5 : 1;
+    reward *= bossMult;
 
     if (game.combat.isBoss) {
         reward *= 10;
+        game.stats.bossKills++;
         stopBossTimer();
         showToast(`BOSS 击杀! 关卡升级!`, "#ffd700");
+        updateQuestProgress('boss', 1);
     }
-
+    
+    // 应用事件效果
+    reward *= getActiveEventMultiplier('bytesMultiplier');
     reward = Math.floor(reward);
     game.bytes += reward;
+    game.stats.totalBytesEarned += reward;
+    
+    // 更新Bytes任务进度
+    updateBytesQuestProgress(reward);
 
     tryDrop('click');
 
     game.combat.level++;
+    updateQuestProgress('level', 1);
 
     // 飘字提示获得了额外战利品
     spawnFloatingText(reward, 'money');
     updateUI();
     saveGame();
+    
+    checkAchievements();
 
     spawnEnemy();
 }
@@ -226,10 +259,30 @@ function recalcPower() {
     let baseClick = GameConfig.settings.clickBasePower;
     let baseAuto = 0;
 
+    // 重置基础值
     game.stats.critChance = 0;
     game.stats.critDamage = 1.5;
     game.stats.discount = 0;
     game.stats.luck = 1;
+
+    // 应用技能效果
+    if (SkillTreeConfig && game.skills) {
+        SkillTreeConfig.skills.forEach(skill => {
+            const level = game.skills[skill.id] || 0;
+            if (level === 0) return;
+            
+            Object.keys(skill.effect).forEach(key => {
+                const value = skill.effect[key] * level;
+                if (key === 'clickPowerBase') {
+                    baseClick *= (1 + value);
+                } else if (key === 'autoPowerBase') {
+                    baseAuto *= (1 + value);
+                } else {
+                    game.stats[key] = (game.stats[key] || 0) + value;
+                }
+            });
+        });
+    }
 
     GameConfig.shopCategories.forEach(cat => {
         cat.items.forEach(item => {
@@ -290,38 +343,49 @@ function generateLoot(source) {
     const chance = (source === 'click' ? LootConfig.settings.dropChanceClick : LootConfig.settings.dropChanceAuto) * game.stats.luck;
     if (Math.random() > chance) return;
 
-    const rand = Math.random();
-    let rarityKey = 'common';
-    let accum = 0;
-    for (let key in LootConfig.rarity) {
-        accum += LootConfig.rarity[key].prob;
-        if (rand <= accum) { rarityKey = key; break; }
-    }
-    const rarity = LootConfig.rarity[rarityKey];
-    const baseItem = LootConfig.equipmentBase[Math.floor(Math.random() * LootConfig.equipmentBase.length)];
-    const existingItem = game.inventory.find(i => i.baseId === baseItem.name && i.rarity === rarityKey);
+    // 检查双倍掉落技能
+    const doubleDrop = game.skills && game.skills['skill_double_drop'] && Math.random() < 0.05;
+    const dropCount = doubleDrop ? 2 : 1;
 
-    if (existingItem) {
-        existingItem.count++;
-        showToast(`获得: [${rarity.name}] ${baseItem.name} (堆叠 x${existingItem.count})`, rarity.color);
-    } else {
-        if (game.inventory.length >= LootConfig.settings.maxInventory) {
-            showToast("背包已满，无法拾取！", "#ff4d4d");
-            return;
+    for (let i = 0; i < dropCount; i++) {
+        const rand = Math.random();
+        let rarityKey = 'common';
+        let accum = 0;
+        for (let key in LootConfig.rarity) {
+            accum += LootConfig.rarity[key].prob;
+            if (rand <= accum) { rarityKey = key; break; }
         }
-        const newItem = {
-            uid: Date.now() + Math.random(),
-            baseId: baseItem.name,
-            name: baseItem.name,
-            slot: baseItem.slot,
-            type: baseItem.type,
-            rarity: rarityKey,
-            value: baseItem.baseVal * rarity.multiplier,
-            desc: baseItem.desc,
-            count: 1
-        };
-        game.inventory.push(newItem);
-        showToast(`获得: [${rarity.name}] ${newItem.name}`, rarity.color);
+        const rarity = LootConfig.rarity[rarityKey];
+        const baseItem = LootConfig.equipmentBase[Math.floor(Math.random() * LootConfig.equipmentBase.length)];
+        const existingItem = game.inventory.find(i => i.baseId === baseItem.name && i.rarity === rarityKey);
+
+        if (existingItem) {
+            existingItem.count++;
+            if (i === 0) { // 只显示一次提示
+                showToast(`获得: [${rarity.name}] ${baseItem.name} (堆叠 x${existingItem.count})${doubleDrop ? ' ✨双倍！' : ''}`, rarity.color);
+            }
+        } else {
+            const maxInv = LootConfig.settings.maxInventory + (game.skills && game.skills['skill_inventory'] ? game.skills['skill_inventory'] * 20 : 0);
+            if (game.inventory.length >= maxInv) {
+                showToast("背包已满，无法拾取！", "#ff4d4d");
+                return;
+            }
+            const newItem = {
+                uid: Date.now() + Math.random() + i,
+                baseId: baseItem.name,
+                name: baseItem.name,
+                slot: baseItem.slot,
+                type: baseItem.type,
+                rarity: rarityKey,
+                value: baseItem.baseVal * rarity.multiplier,
+                desc: baseItem.desc,
+                count: 1
+            };
+            game.inventory.push(newItem);
+            if (i === 0) { // 只显示一次提示
+                showToast(`获得: [${rarity.name}] ${newItem.name}${doubleDrop ? ' ✨双倍！' : ''}`, rarity.color);
+            }
+        }
     }
     saveGame();
     renderInventory();
@@ -350,6 +414,9 @@ window.equipItem = function(index) {
 
     const panel = document.getElementById('item-info-panel');
     if(panel) panel.innerText = "已装备";
+
+    updateQuestProgress('equip', 1);
+    checkAchievements();
 
     recalcPower();
     saveGame();
@@ -686,7 +753,10 @@ function renderInventory() {
     grid.innerHTML = '';
 
     const bagCount = document.getElementById('bag-count');
-    if(bagCount) bagCount.innerText = game.inventory.length;
+    if(bagCount) {
+        const maxInv = LootConfig.settings.maxInventory + (game.skills && game.skills['skill_inventory'] ? game.skills['skill_inventory'] * 20 : 0);
+        bagCount.innerText = `${game.inventory.length}/${maxInv}`;
+    }
 
     const icons = { cpu:'🧩', ram:'💾', disk:'💿', net:'📡', pwr:'🔋' };
 
@@ -791,17 +861,27 @@ function updateUI() {
 
 // --- 9. 主循环与初始化 ---
 function handleClick() {
-    let damage = game.stats.clickPower;
+    // 应用事件效果
+    const bytesMult = getActiveEventMultiplier('bytesMultiplier');
+    const clickMult = getActiveEventMultiplier('clickPowerMultiplier');
+    
+    let damage = game.stats.clickPower * clickMult;
     let isCrit = false;
 
     if (Math.random() < game.stats.critChance) {
         damage *= game.stats.critDamage;
         isCrit = true;
+        game.stats.totalCrits++;
     }
 
-    // --- 修改：点击同时给钱 ---
-    game.bytes += damage;
-    // -------------------------
+    // 统计
+    game.stats.totalClicks++;
+    const bytesEarned = damage * bytesMult;
+    game.bytes += bytesEarned;
+    game.stats.totalBytesEarned += bytesEarned;
+    
+    // 更新Bytes任务进度
+    updateBytesQuestProgress(bytesEarned);
 
     // 攻击敌人
     damageEnemy(damage);
@@ -817,8 +897,23 @@ function handleClick() {
     createRipple(isCrit ? 'red' : 'green');
     spawnFloatingText(damage, isCrit ? 'crit' : 'damage');
 
+    // 更新任务进度
+    updateQuestProgress('click', 1);
+    
+    // 检查成就
+    checkAchievements();
+    
+    // 尝试触发事件
+    trySpawnEvent();
+
     // 更新UI（钱变了）
     updateUI();
+    
+    // 如果在技能页面，实时更新技能按钮状态
+    const skillsView = document.getElementById('view-skills');
+    if (skillsView && skillsView.style.display !== 'none') {
+        updateSkillButtons();
+    }
 }
 
 function saveGame() {
@@ -827,7 +922,12 @@ function saveGame() {
         levels: game.levels,
         inventory: game.inventory,
         equipped: game.equipped,
-        combatLevel: game.combat.level // 保存关卡
+        combatLevel: game.combat.level,
+        stats: game.stats,
+        achievements: game.achievements,
+        dailyQuests: game.dailyQuests,
+        skills: game.skills,
+        lastEventTime: game.lastEventTime
     }));
     const status = document.getElementById('save-status');
     if (status) {
@@ -839,14 +939,48 @@ function saveGame() {
 function loadGame() {
     const save = localStorage.getItem('CyberMinerSave_v3');
     if (save) {
-        const data = JSON.parse(save);
-        game.bytes = data.bytes || 0;
-        game.levels = data.levels || {};
-        game.inventory = data.inventory || [];
-        game.equipped = data.equipped || { cpu: null, ram: null, disk: null, net: null, pwr: null };
-        game.inventory.forEach(i => { if(!i.count) i.count = 1; });
-        game.combat.level = data.combatLevel || 1; // 读取关卡
+        try {
+            const data = JSON.parse(save);
+            game.bytes = data.bytes || 0;
+            game.levels = data.levels || {};
+            game.inventory = data.inventory || [];
+            game.equipped = data.equipped || { cpu: null, ram: null, disk: null, net: null, pwr: null };
+            game.inventory.forEach(i => { if(!i.count) i.count = 1; });
+            game.combat.level = data.combatLevel || 1;
+            
+            // 加载新功能数据
+            if (data.stats) {
+                // 合并统计，确保新字段有默认值
+                game.stats = {
+                    ...game.stats,
+                    ...data.stats
+                };
+            }
+            if (data.achievements) {
+                game.achievements = {
+                    unlocked: data.achievements.unlocked || [],
+                    progress: data.achievements.progress || {}
+                };
+            }
+            if (data.dailyQuests) {
+                game.dailyQuests = {
+                    date: data.dailyQuests.date || new Date().toDateString(),
+                    quests: data.dailyQuests.quests || [],
+                    progress: data.dailyQuests.progress || {}
+                };
+            }
+            if (data.skills) {
+                game.skills = data.skills;
+            }
+            game.lastEventTime = data.lastEventTime || 0;
+        } catch (e) {
+            console.error('加载存档失败:', e);
+        }
     }
+    
+    // 初始化每日任务（必须在加载后调用，以便检查日期）
+    initDailyQuests();
+    
     recalcPower();
     renderInventory();
 
@@ -867,32 +1001,64 @@ function init() {
     renderShop();
     loadGame();
     updateUI();
+    
+    // 初始化新功能界面
+    initDailyQuests(); // 确保任务已初始化
+    renderAchievements();
+    renderQuests();
+    renderCraft();
+    renderSkills();
 
     // 自动挂机循环
     setInterval(() => {
         if (game.stats.autoPower > 0) {
+            // 应用事件效果
+            const bytesMult = getActiveEventMultiplier('bytesMultiplier');
+            const autoMult = getActiveEventMultiplier('autoPowerMultiplier');
+            
+            let autoDamage = game.stats.autoPower * autoMult;
+            
+            // 自动暴击
+            if (game.skills && game.skills['skill_auto_crit'] && Math.random() < 0.1) {
+                autoDamage *= game.stats.critDamage;
+            }
 
             // --- 修改：挂机同时产出钱 ---
-            game.bytes += game.stats.autoPower;
+            const bytesEarned = autoDamage * bytesMult;
+            game.bytes += bytesEarned;
+            game.stats.totalBytesEarned += bytesEarned;
+            
+            // 更新Bytes任务进度
+            updateBytesQuestProgress(bytesEarned);
             // ---------------------------
 
             // 自动攻击
-            damageEnemy(game.stats.autoPower);
+            damageEnemy(autoDamage);
 
             // 更新UI
             updateUI();
+            
+            // 如果在技能页面，实时更新技能按钮状态
+            const skillsView = document.getElementById('view-skills');
+            if (skillsView && skillsView.style.display !== 'none') {
+                updateSkillButtons();
+            }
 
             // 只有活着的时候才冒字
             if (game.combat.currentHp > 0) {
-                spawnFloatingText(game.stats.autoPower, 'auto');
+                spawnFloatingText(autoDamage, 'auto');
                 if (visualEls.core) {
                     visualEls.core.classList.remove('core-auto-pulse');
                     void visualEls.core.offsetWidth;
                     visualEls.core.classList.add('core-auto-pulse');
                 }
             }
-            // 自动挂机概率掉落
+            // 自动挂机概率掉落（应用事件效果）
+            const dropMult = getActiveEventMultiplier('dropChanceMultiplier');
+            const originalLuck = game.stats.luck;
+            game.stats.luck *= dropMult;
             tryDrop('auto');
+            game.stats.luck = originalLuck;
         }
     }, 1000);
 
@@ -905,21 +1071,590 @@ function init() {
     }
 }
 
+// ==========================================
+// 新功能系统实现
+// ==========================================
+
+// --- 成就系统 ---
+function checkAchievements() {
+    if (!AchievementConfig) return;
+    
+    AchievementConfig.achievements.forEach(ach => {
+        if (game.achievements.unlocked.includes(ach.id)) return;
+        
+        if (ach.check()) {
+            game.achievements.unlocked.push(ach.id);
+            game.bytes += ach.reward;
+            showToast(`🏆 成就解锁: ${ach.name}！获得 ${formatBytes(ach.reward)}`, '#ffd700');
+            spawnFloatingText(ach.reward, 'money');
+            renderAchievements();
+            saveGame();
+        }
+    });
+}
+
+function renderAchievements() {
+    const container = document.getElementById('achievements-container');
+    if (!container || !AchievementConfig) return;
+    
+    container.innerHTML = '';
+    const unlocked = new Set(game.achievements.unlocked);
+    
+    AchievementConfig.achievements.forEach(ach => {
+        const div = document.createElement('div');
+        div.className = 'achievement-item card-style';
+        if (unlocked.has(ach.id)) div.classList.add('unlocked');
+        
+        div.innerHTML = `
+            <div class="achievement-icon">${ach.icon}</div>
+            <div class="achievement-info">
+                <h3>${ach.name}</h3>
+                <p>${ach.desc}</p>
+                <div class="achievement-reward">奖励: ${formatBytes(ach.reward)}</div>
+            </div>
+            ${unlocked.has(ach.id) ? '<div class="achievement-check">✓</div>' : ''}
+        `;
+        container.appendChild(div);
+    });
+}
+
+// --- 每日任务系统 ---
+function initDailyQuests() {
+    const today = new Date().toDateString();
+    const isNewDay = game.dailyQuests.date !== today;
+    const needsInit = !game.dailyQuests.quests || game.dailyQuests.quests.length === 0;
+    
+    // 如果日期不同，或者任务列表为空，需要初始化
+    if (isNewDay || needsInit) {
+        // 如果是新的一天，重置进度
+        if (isNewDay) {
+            game.dailyQuests.progress = {};
+        }
+        
+        // 确保进度对象存在
+        if (!game.dailyQuests.progress) {
+            game.dailyQuests.progress = {};
+        }
+        
+        // 更新日期和任务列表
+        game.dailyQuests.date = today;
+        game.dailyQuests.quests = [...DailyQuestConfig.quests];
+        
+        // 确保所有任务都有进度记录
+        DailyQuestConfig.quests.forEach(q => {
+            if (game.dailyQuests.progress[q.id] === undefined) {
+                game.dailyQuests.progress[q.id] = 0;
+            }
+        });
+    }
+}
+
+function updateQuestProgress(type, amount = 1) {
+    // 确保任务已初始化
+    initDailyQuests();
+    
+    if (!game.dailyQuests.quests || game.dailyQuests.quests.length === 0) {
+        console.warn('每日任务未初始化');
+        return;
+    }
+    
+    let progressUpdated = false;
+    
+    game.dailyQuests.quests.forEach(quest => {
+        if (quest.type !== type) return;
+        
+        // 确保进度对象存在
+        if (!game.dailyQuests.progress) {
+            game.dailyQuests.progress = {};
+        }
+        
+        const currentProgress = game.dailyQuests.progress[quest.id] || 0;
+        if (currentProgress >= quest.target) return;
+        
+        const newProgress = Math.min(currentProgress + amount, quest.target);
+        game.dailyQuests.progress[quest.id] = newProgress;
+        progressUpdated = true;
+        
+        if (newProgress >= quest.target && currentProgress < quest.target) {
+            game.bytes += quest.reward;
+            showToast(`📋 任务完成: ${quest.name}！获得 ${formatBytes(quest.reward)}`, '#00e5ff');
+            spawnFloatingText(quest.reward, 'money');
+        }
+    });
+    
+    if (progressUpdated) {
+        saveGame();
+        renderQuests();
+    }
+}
+
+// 更新Bytes任务进度（单独处理，因为需要跟踪累计值）
+function updateBytesQuestProgress(bytesEarned) {
+    if (!game.dailyQuests.quests || game.dailyQuests.quests.length === 0) {
+        initDailyQuests();
+    }
+    if (!game.dailyQuests.quests || game.dailyQuests.quests.length === 0) return;
+    
+    game.dailyQuests.quests.forEach(quest => {
+        if (quest.type !== 'bytes') return;
+        const currentProgress = game.dailyQuests.progress[quest.id] || 0;
+        if (currentProgress >= quest.target) return;
+        
+        const newProgress = Math.min(currentProgress + bytesEarned, quest.target);
+        game.dailyQuests.progress[quest.id] = newProgress;
+        
+        if (newProgress >= quest.target && currentProgress < quest.target) {
+            game.bytes += quest.reward;
+            showToast(`📋 任务完成: ${quest.name}！获得 ${formatBytes(quest.reward)}`, '#00e5ff');
+            spawnFloatingText(quest.reward, 'money');
+            saveGame();
+        }
+    });
+    renderQuests();
+}
+
+function renderQuests() {
+    const container = document.getElementById('quests-container');
+    if (!container || !DailyQuestConfig) return;
+    
+    container.innerHTML = '';
+    
+    // 确保使用当前日期任务
+    const quests = game.dailyQuests.quests && game.dailyQuests.quests.length > 0 
+        ? game.dailyQuests.quests 
+        : DailyQuestConfig.quests;
+    
+    quests.forEach(quest => {
+        const progress = game.dailyQuests.progress[quest.id] || 0;
+        const completed = progress >= quest.target;
+        
+        const div = document.createElement('div');
+        div.className = 'quest-item card-style';
+        if (completed) div.classList.add('completed');
+        
+        const pct = Math.min(100, (progress / quest.target) * 100);
+        
+        div.innerHTML = `
+            <div class="quest-header">
+                <span class="quest-icon">${quest.icon}</span>
+                <div class="quest-info">
+                    <h3>${quest.name}</h3>
+                    <p>${quest.desc}</p>
+                </div>
+                <div class="quest-reward">${formatBytes(quest.reward)}</div>
+            </div>
+            <div class="quest-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${pct}%"></div>
+                </div>
+                <span class="progress-text">${progress} / ${quest.target}</span>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+// --- 装备合成系统 ---
+function renderCraft() {
+    const container = document.getElementById('craft-container');
+    if (!container || !CraftConfig) return;
+    
+    container.innerHTML = '';
+    
+    CraftConfig.recipes.forEach((recipe, idx) => {
+        const div = document.createElement('div');
+        div.className = 'craft-recipe card-style';
+        
+        const inputDesc = recipe.input.sameType 
+            ? `${recipe.input.count}个${getRarityName(recipe.input.rarity)}同类型装备`
+            : `${recipe.input.count}个任意${getRarityName(recipe.input.rarity)}装备`;
+        
+        // 检查是否有足够的材料
+        const hasMaterials = checkCraftMaterials(recipe);
+        const canAfford = game.bytes >= recipe.cost;
+        const canCraft = hasMaterials && canAfford;
+        
+        div.innerHTML = `
+            <div class="craft-info">
+                <h3>${inputDesc}</h3>
+                <p style="color:#00e5ff; margin: 5px 0;">→ 合成 →</p>
+                <h3>1个${getRarityName(recipe.output.rarity)}装备</h3>
+                <p style="color:#888; font-size:0.8rem; margin-top: 5px;">属性提升 ${((recipe.output.multiplier - 1) * 100).toFixed(0)}%</p>
+            </div>
+            <button class="buy-btn ${canCraft ? 'can-buy' : ''}" onclick="tryCraft(${idx})" id="craft-btn-${idx}">
+                合成 (${formatBytes(recipe.cost)})
+            </button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function checkCraftMaterials(recipe) {
+    const candidates = game.inventory.filter(item => item.rarity === recipe.input.rarity);
+    
+    if (recipe.input.sameType) {
+        // 需要同类型，按类型分组
+        const byType = {};
+        candidates.forEach(item => {
+            if (!byType[item.type]) byType[item.type] = [];
+            byType[item.type].push(item);
+        });
+        
+        // 找到有足够数量的类型
+        for (let type in byType) {
+            const total = byType[type].reduce((sum, item) => sum + item.count, 0);
+            if (total >= recipe.input.count) {
+                return true;
+            }
+        }
+        return false;
+    } else {
+        // 任意类型，只要总数够就行
+        const total = candidates.reduce((sum, item) => sum + item.count, 0);
+        return total >= recipe.input.count;
+    }
+}
+
+function getRarityName(rarity) {
+    return LootConfig.rarity[rarity]?.name || rarity;
+}
+
+window.tryCraft = function(recipeIndex) {
+    const recipe = CraftConfig.recipes[recipeIndex];
+    if (!recipe) return;
+    
+    if (game.bytes < recipe.cost) {
+        showToast('Bytes不足！', '#ff4d4d');
+        return;
+    }
+    
+    // 查找符合条件的装备
+    let candidates = game.inventory.filter(item => item.rarity === recipe.input.rarity);
+    
+    if (recipe.input.sameType) {
+        // 需要同类型，按类型分组
+        const byType = {};
+        candidates.forEach(item => {
+            if (!byType[item.type]) byType[item.type] = [];
+            byType[item.type].push(item);
+        });
+        
+        // 找到有足够数量的类型
+        let selectedType = null;
+        for (let type in byType) {
+            const total = byType[type].reduce((sum, item) => sum + item.count, 0);
+            if (total >= recipe.input.count) {
+                selectedType = type;
+                break;
+            }
+        }
+        
+        if (!selectedType) {
+            showToast(`需要${recipe.input.count}个同类型${getRarityName(recipe.input.rarity)}装备！`, '#ff4d4d');
+            renderCraft(); // 更新按钮状态
+            return;
+        }
+        
+        candidates = byType[selectedType];
+    }
+    
+    const total = candidates.reduce((sum, item) => sum + item.count, 0);
+    if (total < recipe.input.count) {
+        showToast(`需要${recipe.input.count}个${getRarityName(recipe.input.rarity)}装备！`, '#ff4d4d');
+        renderCraft(); // 更新按钮状态
+        return;
+    }
+    
+    // 消耗装备
+    let needed = recipe.input.count;
+    const toRemove = [];
+    candidates.forEach((item) => {
+        if (needed <= 0) return;
+        const use = Math.min(needed, item.count);
+        item.count -= use;
+        needed -= use;
+        if (item.count <= 0) {
+            const idx = game.inventory.indexOf(item);
+            if (idx >= 0) toRemove.push(idx);
+        }
+    });
+    
+    toRemove.reverse().forEach(idx => game.inventory.splice(idx, 1));
+    
+    // 生成新装备
+    let baseItem;
+    if (recipe.output.random) {
+        // 随机选择基础装备
+        baseItem = LootConfig.equipmentBase[Math.floor(Math.random() * LootConfig.equipmentBase.length)];
+    } else {
+        // 使用第一个装备的类型，从equipmentBase中找到对应的基础装备
+        const firstCandidate = candidates[0];
+        if (firstCandidate) {
+            baseItem = LootConfig.equipmentBase.find(b => b.name === firstCandidate.baseId || b.name === firstCandidate.name);
+        }
+        // 如果找不到，随机选择一个
+        if (!baseItem) {
+            baseItem = LootConfig.equipmentBase[Math.floor(Math.random() * LootConfig.equipmentBase.length)];
+        }
+    }
+    
+    const newRarity = recipe.output.rarity;
+    const rarityCfg = LootConfig.rarity[newRarity];
+    
+    // 计算新装备的值：基础值 * 稀有度倍数 * 合成配方倍数
+    const newValue = baseItem.baseVal * rarityCfg.multiplier * recipe.output.multiplier;
+    
+    const newItem = {
+        uid: Date.now() + Math.random(),
+        baseId: baseItem.name,
+        name: baseItem.name,
+        slot: baseItem.slot,
+        type: baseItem.type,
+        rarity: newRarity,
+        value: newValue,
+        desc: baseItem.desc,
+        count: 1
+    };
+    
+    game.inventory.push(newItem);
+    game.bytes -= recipe.cost;
+    
+    showToast(`合成成功！获得 [${rarityCfg.name}] ${newItem.name}`, rarityCfg.color);
+    saveGame();
+    renderInventory();
+    renderCraft(); // 重新渲染以更新按钮状态
+    updateUI();
+};
+
+// --- 随机事件系统 ---
+function trySpawnEvent() {
+    if (!EventConfig) return;
+    const now = Date.now();
+    if (now - game.lastEventTime < EventConfig.minInterval) return;
+    if (Math.random() > EventConfig.spawnChance) return;
+    
+    const event = EventConfig.events[Math.floor(Math.random() * EventConfig.events.length)];
+    activateEvent(event);
+    game.lastEventTime = now;
+}
+
+function activateEvent(event) {
+    game.activeEvents.push({
+        id: event.id,
+        name: event.name,
+        desc: event.desc,
+        icon: event.icon,
+        endTime: Date.now() + event.duration,
+        effect: event.effect
+    });
+    
+    showEventNotification(event);
+    
+    if (event.duration > 0) {
+        setTimeout(() => {
+            removeEvent(event.id);
+        }, event.duration);
+    } else {
+        // 立即生效的事件
+        applyEventEffect(event);
+    }
+}
+
+function showEventNotification(event) {
+    const container = document.getElementById('event-notification');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div class="event-content">
+            <span class="event-icon">${event.icon}</span>
+            <div>
+                <div class="event-title">${event.name}</div>
+                <div class="event-desc">${event.desc}</div>
+            </div>
+        </div>
+    `;
+    container.style.display = 'block';
+    
+    setTimeout(() => {
+        container.style.display = 'none';
+    }, 5000);
+}
+
+function removeEvent(eventId) {
+    game.activeEvents = game.activeEvents.filter(e => e.id !== eventId);
+}
+
+function applyEventEffect(event) {
+    if (event.effect.bytesReward) {
+        const reward = typeof event.effect.bytesReward === 'function' 
+            ? event.effect.bytesReward() 
+            : event.effect.bytesReward;
+        game.bytes += reward;
+        spawnFloatingText(reward, 'money');
+        showToast(`获得 ${formatBytes(reward)}！`, '#ffd700');
+    }
+    
+    if (event.effect.bytesPenalty) {
+        const penalty = typeof event.effect.bytesPenalty === 'function'
+            ? event.effect.bytesPenalty()
+            : event.effect.bytesPenalty;
+        game.bytes = Math.max(0, game.bytes - penalty);
+        showToast(`损失 ${formatBytes(penalty)}`, '#ff4d4d');
+    }
+    
+    if (event.effect.itemReward) {
+        for (let i = 0; i < event.effect.itemReward.count; i++) {
+            generateLoot('click');
+        }
+    }
+    
+    updateUI();
+}
+
+function getActiveEventMultiplier(type) {
+    let mult = 1;
+    game.activeEvents.forEach(event => {
+        if (event.effect[type]) {
+            mult *= event.effect[type];
+        }
+    });
+    return mult;
+}
+
+// --- 技能树系统 ---
+function renderSkills() {
+    const container = document.getElementById('skills-container');
+    if (!container || !SkillTreeConfig) return;
+    
+    container.innerHTML = '';
+    
+    SkillTreeConfig.skills.forEach(skill => {
+        const level = game.skills[skill.id] || 0;
+        const canUpgrade = canUpgradeSkill(skill);
+        const cost = getSkillCost(skill, level);
+        const canAfford = game.bytes >= cost;
+        
+        const div = document.createElement('div');
+        div.className = 'skill-item card-style';
+        if (level >= skill.maxLevel) div.classList.add('maxed');
+        if (!canUpgrade) div.classList.add('locked');
+        
+        div.innerHTML = `
+            <div class="skill-header">
+                <span class="skill-icon">${skill.icon}</span>
+                <div class="skill-info">
+                    <h3>${skill.name} (${level}/${skill.maxLevel})</h3>
+                    <p>${skill.desc}</p>
+                </div>
+            </div>
+            <div class="skill-cost">
+                ${level >= skill.maxLevel 
+                    ? '<span style="color:#888">已满级</span>'
+                    : `<button class="buy-btn ${canUpgrade && canAfford ? 'can-buy' : ''}" onclick="upgradeSkill('${skill.id}')" id="skill-btn-${skill.id}">
+                       升级 (${formatBytes(cost)})
+                   </button>`
+                }
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function canUpgradeSkill(skill) {
+    if (!skill.requires) return true;
+    return skill.requires.every(reqId => (game.skills[reqId] || 0) > 0);
+}
+
+function getSkillCost(skill, currentLevel) {
+    return Math.floor(skill.cost * Math.pow(1.5, currentLevel));
+}
+
+// 更新技能按钮状态（不重新渲染整个列表，只更新按钮）
+function updateSkillButtons() {
+    if (!SkillTreeConfig) return;
+    
+    SkillTreeConfig.skills.forEach(skill => {
+        const level = game.skills[skill.id] || 0;
+        const btn = document.getElementById(`skill-btn-${skill.id}`);
+        if (!btn) return;
+        
+        if (level >= skill.maxLevel) {
+            btn.outerHTML = '<span style="color:#888">已满级</span>';
+            return;
+        }
+        
+        const canUpgrade = canUpgradeSkill(skill);
+        const cost = getSkillCost(skill, level);
+        const canAfford = game.bytes >= cost;
+        
+        btn.innerText = `升级 (${formatBytes(cost)})`;
+        if (canUpgrade && canAfford) {
+            btn.classList.add('can-buy');
+        } else {
+            btn.classList.remove('can-buy');
+        }
+    });
+}
+
+window.upgradeSkill = function(skillId) {
+    const skill = SkillTreeConfig.skills.find(s => s.id === skillId);
+    if (!skill) return;
+    
+    const level = game.skills[skillId] || 0;
+    if (level >= skill.maxLevel) return;
+    if (!canUpgradeSkill(skill)) {
+        showToast('需要先学习前置技能！', '#ff4d4d');
+        return;
+    }
+    
+    const cost = getSkillCost(skill, level);
+    if (game.bytes < cost) {
+        showToast('Bytes不足！', '#ff4d4d');
+        return;
+    }
+    
+    game.bytes -= cost;
+    game.skills[skillId] = level + 1;
+    
+    // 应用技能效果
+    recalcPower();
+    
+    showToast(`技能升级: ${skill.name}`, '#00ff41');
+    saveGame();
+    updateUI();
+    renderSkills(); // 重新渲染以更新价格和按钮状态
+};
+
+
+
 // 标签页切换
 window.switchTab = function(tabName) {
     document.getElementById('view-mining').style.display = 'none';
     document.getElementById('view-shop').style.display = 'none';
+    document.getElementById('view-achievements').style.display = 'none';
+    document.getElementById('view-quests').style.display = 'none';
+    document.getElementById('view-craft').style.display = 'none';
+    document.getElementById('view-skills').style.display = 'none';
 
     document.getElementById(`view-${tabName}`).style.display = 'block';
 
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => item.classList.remove('active'));
 
-    if (tabName === 'mining') navItems[0].classList.add('active');
-    if (tabName === 'shop') navItems[1].classList.add('active');
+    const tabMap = { mining: 0, shop: 1, achievements: 2, quests: 3, craft: 4, skills: 5 };
+    if (tabMap[tabName] !== undefined) navItems[tabMap[tabName]].classList.add('active');
 
     if (tabName === 'shop') {
         updateUI();
+    } else if (tabName === 'achievements') {
+        renderAchievements();
+    } else if (tabName === 'quests') {
+        renderQuests();
+    } else if (tabName === 'craft') {
+        renderCraft();
+    } else if (tabName === 'skills') {
+        updateUI(); // 先更新UI确保Bytes是最新的
+        renderSkills();
     }
 };
 
