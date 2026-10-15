@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyber Miner v3.0</title>
+    <title>Cyber Miner v4.0</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -41,7 +41,7 @@
             </div>
         </section>
         <section class="visual-feedback-area">
-            <div id="data-core" class="core-idle">
+            <div id="data-core" class="core-idle" role="button" tabindex="0" aria-label="挖矿：点击或按空格、回车">
                 <div class="core-inner"></div>
             </div>
             <div id="ripple-container"></div>
@@ -86,6 +86,9 @@
             <p>只要有 Bytes，这里什么都有</p>
         </header>
 
+        <div class="toolbar"><label for="buy-amount">购买数量</label>
+            <select id="buy-amount"><option value="1">×1</option><option value="10">最多 ×10</option><option value="100">最多 ×100</option><option value="max">最大可购买</option></select>
+            <span>自动按余额购买，不会透支</span></div>
         <section class="shop-area" id="shop-container">
         </section>
 
@@ -137,6 +140,25 @@
         <div style="height: 80px;"></div>
     </div>
 
+    <div id="view-settings" class="game-view" style="display:none">
+        <header class="shop-intro"><h2>⚙️ 指挥中心</h2><p>查看进度，管理你的挖矿基地</p></header>
+        <div id="dashboard" class="dashboard"></div>
+        <section class="control-card"><h3>离线生产</h3>
+            <p>离开至少 1 分钟后，按基础自动算力的 50% 结算，最多累计 8 小时。不计算临时 Buff、暴击、战斗或掉落。</p>
+            <p id="offline-report" role="status">购买自动设备后，即可获得离线收益。</p>
+        </section>
+        <section class="control-card"><h3>存档管理</h3>
+            <p>每 5 秒自动保存。导入前会保留当前存档备份；建议定期导出到文件。</p>
+            <div class="toolbar"><button id="save-now" class="buy-btn">立即保存</button><button id="export-save" class="buy-btn">导出存档</button><button id="import-save" class="buy-btn">导入存档</button><button id="restore-backup" class="buy-btn">恢复导入前备份</button></div>
+            <input id="save-file" type="file" accept=".json,application/json" hidden>
+            <p id="save-status" role="status" aria-live="polite">等待保存</p>
+        </section>
+        <section class="control-card"><h3>操作与显示</h3>
+            <label><input id="reduced-motion" type="checkbox"> 减少动画与伤害飘字</label>
+            <p>挖矿核心支持键盘：Tab 聚焦后，按空格或回车挖矿。</p>
+        </section>
+    </div>
+
 </div>
 
 <nav class="bottom-nav">
@@ -168,6 +190,7 @@
         <span class="nav-icon">🎁</span>
         <span>宝箱</span>
     </button>
+<button class="nav-item" onclick="switchTab('settings')"><span class="nav-icon">⚙️</span><span>设置</span></button>
 </nav>
 
 <div id="game-tooltip" class="tooltip-container" style="display: none;"></div>
@@ -177,6 +200,7 @@
 <script src="config.js"></script>
 <script src="loot-config.js"></script>
 <script src="features-config.js"></script>
+<script src="enhancements.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

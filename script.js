@@ -135,7 +135,7 @@ function onEnemyDeath() {
     let reward = CombatConfig.baseReward * Math.pow(CombatConfig.rewardGrowth, game.combat.level - 1);
     
     // 应用技能效果
-    const bossMult = game.skills && game.skills['skill_boss_reward'] ? 1.5 : 1;
+    const bossMult = game.combat.isBoss && game.skills && game.skills['skill_boss_reward'] ? 1.5 : 1;
     reward *= bossMult;
 
     if (game.combat.isBoss) {
@@ -268,6 +268,7 @@ function getCost(item) {
 function recalcPower() {
     let baseClick = GameConfig.settings.clickBasePower;
     let baseAuto = 0;
+    let clickSkillMult = 1, autoSkillMult = 1;
 
     // 重置基础值
     game.stats.critChance = 0;
@@ -284,9 +285,9 @@ function recalcPower() {
             Object.keys(skill.effect).forEach(key => {
                 const value = skill.effect[key] * level;
                 if (key === 'clickPowerBase') {
-                    baseClick *= (1 + value);
+                    clickSkillMult *= (1 + value);
                 } else if (key === 'autoPowerBase') {
-                    baseAuto *= (1 + value);
+                    autoSkillMult *= (1 + value);
                 } else {
                     game.stats[key] = (game.stats[key] || 0) + value;
                 }
@@ -346,8 +347,8 @@ function recalcPower() {
     });
 
     // 计算基础算力（不包含临时倍率buff，倍率buff在点击/自动时实时应用）
-    game.stats.clickPower = Math.floor(baseClick * clickMult * damageBonus);
-    game.stats.autoPower = Math.floor(baseAuto * autoMult * damageBonus);
+    game.stats.clickPower = Math.floor(baseClick * clickSkillMult * clickMult * damageBonus);
+    game.stats.autoPower = Math.floor(baseAuto * autoSkillMult * autoMult * damageBonus);
 
     updateCoreVisuals();
 }
@@ -356,21 +357,15 @@ window.buyItem = function (id) {
     const item = findItemById(id);
     if (!item) return;
 
-    const cost = getCost(item);
-    if (game.bytes >= cost) {
-        game.bytes -= cost;
-        game.levels[item.id] = (game.levels[item.id] || 0) + 1;
-
-        recalcPower();
-        updateUI();
-        saveGame();
-
-        const btn = document.getElementById(`btn-${id}`);
-        if(btn) {
-            btn.innerText = "GET!";
-            setTimeout(() => updateUI(), 300);
-        }
-    }
+    const quote = getPurchaseQuote(item);
+    if (!quote.count) return;
+    game.bytes = Math.max(0, game.bytes - quote.cost);
+    game.levels[id] = (game.levels[id] || 0) + quote.count;
+    recalcPower();
+    checkAchievements();
+    updateUI();
+    saveGame();
+    showToast(`已购买 ${item.name} ×${quote.count}`, '#00ff41');
 };
 
 // --- 6. 掉落与背包 (Inventory System) ---
@@ -928,6 +923,7 @@ function updateCoreVisuals() {
 }
 
 function spawnFloatingText(amount, type) {
+    if (playerSettings.reducedMotion) return;
     const container = document.getElementById('floating-text-container');
     if (!container) return;
     const el = document.createElement('div');
@@ -964,6 +960,7 @@ function spawnFloatingText(amount, type) {
 }
 
 function createRipple(color) {
+    if (playerSettings.reducedMotion) return;
     if (!visualEls.rippleContainer) return;
     const ripple = document.createElement('div');
     ripple.className = 'ripple';
@@ -1177,6 +1174,7 @@ function renderInventory() {
 }
 
 function updateUI() {
+    renderDashboard();
     // 更新顶部的钱
     const topScore = document.getElementById('top-score');
     if(topScore) topScore.innerText = formatBytes(game.bytes);
@@ -1200,14 +1198,16 @@ function updateUI() {
 
     GameConfig.shopCategories.forEach(cat => {
         cat.items.forEach(item => {
-            const cost = getCost(item);
+            const quote = getPurchaseQuote(item);
+            const cost = quote.count ? quote.cost : getCost(item);
             const btn = document.getElementById(`btn-${item.id}`);
             const lvlLabel = document.getElementById(`lvl-${item.id}`);
 
             if (btn) {
                 if (btn.innerText !== "GET!") {
-                    btn.innerText = `${formatBytes(cost)} B`;
+                    btn.innerText = `${formatBytes(cost)} B${quote.count > 1 ? ` ×${quote.count}` : ''}`;
                 }
+                btn.disabled = !quote.count;
                 if (game.bytes >= cost) btn.classList.add('can-buy');
                 else btn.classList.remove('can-buy');
             }
@@ -1289,8 +1289,10 @@ function handleClick() {
     }
 }
 
-function saveGame() {
-    localStorage.setItem('CyberMinerSave_v3', JSON.stringify({
+function createSaveData() {
+    return {
+        version: 4,
+        savedAt: Date.now(),
         bytes: game.bytes,
         levels: game.levels,
         inventory: game.inventory,
@@ -1303,19 +1305,33 @@ function saveGame() {
         lastEventTime: game.lastEventTime,
         chests: game.chests,
         activeBuffs: game.activeBuffs
-    }));
+    };
+}
+
+function saveGame() {
+    if (replacingSave) return false;
+    try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify(createSaveData()));
+    } catch (error) {
+        document.getElementById('save-status').textContent = '保存失败，请导出备份';
+        return false;
+    }
     const status = document.getElementById('save-status');
     if (status) {
         status.innerText = '已自动存档';
-        setTimeout(() => status.innerText = '', 1500);
+        status.title = new Date().toLocaleTimeString();
     }
+    return true;
 }
 
 function loadGame() {
-    const save = localStorage.getItem('CyberMinerSave_v3');
+    let save;
+    let offlineSince = null;
+    try { save = localStorage.getItem('CyberMinerSave_v3'); } catch (_) { /* export remains available */ }
     if (save) {
         try {
             const data = JSON.parse(save);
+            offlineSince = data.savedAt;
             game.bytes = data.bytes || 0;
             game.levels = data.levels || {};
             game.inventory = data.inventory || [];
@@ -1379,11 +1395,13 @@ function loadGame() {
 
     // 初始化怪物
     spawnEnemy();
+    grantOfflineIncome(offlineSince);
 }
 
 window.resetGame = function() {
     if (confirm('确定要清空数据重来吗？')) {
         localStorage.removeItem('CyberMinerSave_v3');
+        replacingSave = true;
         location.reload();
     }
 };
@@ -1559,6 +1577,10 @@ function init() {
     
     // Buff倒计时实时更新（每秒更新一次）
     setInterval(() => {
+        if (game.dailyQuests.date !== new Date().toDateString()) {
+            initDailyQuests();
+            renderQuests();
+        }
         updateBuffsTimer();
     }, 1000);
 
@@ -1688,6 +1710,7 @@ function updateQuestProgress(type, amount = 1) {
 
 // 更新Bytes任务进度（单独处理，因为需要跟踪累计值）
 function updateBytesQuestProgress(bytesEarned) {
+    initDailyQuests();
     if (!game.dailyQuests.quests || game.dailyQuests.quests.length === 0) {
         initDailyQuests();
     }
@@ -2128,7 +2151,7 @@ window.upgradeSkill = function(skillId) {
 // 标签页切换
 window.switchTab = function(tabName) {
     // 隐藏所有视图
-    const views = ['view-mining', 'view-shop', 'view-achievements', 'view-quests', 'view-craft', 'view-skills', 'view-chests'];
+    const views = ['view-mining', 'view-shop', 'view-achievements', 'view-quests', 'view-craft', 'view-skills', 'view-chests', 'view-settings'];
     views.forEach(viewId => {
         const view = document.getElementById(viewId);
         if (view) {
@@ -2154,7 +2177,7 @@ window.switchTab = function(tabName) {
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => item.classList.remove('active'));
 
-    const tabMap = { mining: 0, shop: 1, achievements: 2, quests: 3, craft: 4, skills: 5, chests: 6 };
+    const tabMap = { mining: 0, shop: 1, achievements: 2, quests: 3, craft: 4, skills: 5, chests: 6, settings: 7 };
     if (tabMap[tabName] !== undefined && navItems[tabMap[tabName]]) {
         navItems[tabMap[tabName]].classList.add('active');
     }
@@ -2175,8 +2198,11 @@ window.switchTab = function(tabName) {
         renderSkills();
     } else if (tabName === 'chests') {
         renderChests();
+    } else if (tabName === 'settings') {
+        renderDashboard();
     }
 };
 
 // 启动引擎
 init();
+initEnhancements();
