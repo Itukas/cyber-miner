@@ -1373,3 +1373,31 @@ body {
     color: #8b949e;
     font-size: 0.85rem;
 }
+
+/* Command center and accessible controls */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.toolbar > span, .control-card p { color: #a8b5c4; font-size: .9rem; line-height: 1.7; }
+.toolbar select { padding: 10px; color: var(--text-color); background: var(--card-bg); border: 1px solid var(--accent-color); border-radius: 6px; }
+.control-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin: 16px 0; }
+.control-card h3 { margin-top: 0; color: var(--accent-color); }
+.control-card .buy-btn { width: auto; flex: 1 1 140px; color: #bfffea; border-color: #378976; background: #153c35; cursor: pointer; }
+.control-card .buy-btn:hover { background: #20584c; }
+.dashboard { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.metric { padding: 18px; background: linear-gradient(135deg, #16282b, #161b22); border: 1px solid #2b4746; border-radius: 10px; }
+.metric span { display: block; color: #a8b5c4; font-size: .85rem; }
+.metric strong { display: block; font-size: 1.7rem; color: #76f5c7; margin-top: 10px; overflow-wrap: anywhere; }
+#view-settings { padding-bottom: 85px; }
+#save-status { color: #76f5c7; min-height: 1.7em; }
+button:focus-visible, select:focus-visible, input:focus-visible, #data-core:focus-visible { outline: 3px solid #00e5ff; outline-offset: 4px; }
+.buy-btn:disabled { opacity: .45; cursor: not-allowed; }
+.reduced-motion *, .reduced-motion *::before, .reduced-motion *::after { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media (max-width: 600px) {
+    .dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .bottom-nav { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; }
+    .nav-item { flex: 1 0 44px; min-width: 44px; box-sizing: border-box; }
+    .control-card { padding: 16px; }
+    .control-card .buy-btn { min-height: 44px; }
+}
